@@ -1,0 +1,29 @@
+{
+  "name": "neo-radar",
+  "version": "1.0.0",
+  "description": "Real orbital-mechanics engine for tracking Near-Earth Objects",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.22.2",
+    "helmet": "^8.2.0",
+    "node-fetch": "^3.3.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/azpeeen/NEO-Radar.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/azpeeen/NEO-Radar/issues"
+  },
+  "homepage": "https://github.com/azpeeen/NEO-Radar#readme"
+}

@@ -1,0 +1,27 @@
+<nav class="nav" data-screen-label="01 Landing — Nav">
+  <a href="/" class="brand">
+    <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <g transform="translate(32 32) rotate(-18)">
+        <ellipse cx="0" cy="0" rx="26" ry="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"></ellipse>
+        <circle cx="18" cy="-5.4" r="2.2" fill="currentColor"></circle>
+        <circle cx="-15" cy="5.6" r="2.2" fill="currentColor"></circle>
+      </g>
+      <path d="M32 6 L34.6 30 L48 32 L34.6 34 L32 58 L29.4 34 L16 32 L29.4 30 Z" fill="currentColor"></path>
+    </svg>
+    <span class="name">NEO Radar</span>
+    <span class="sub">v 1.0 · Heliocentric</span>
+  </a>
+  <div class="links">
+    <a href="/" class="<%= page==='index'?'active':'' %>">Overview</a>
+    <a href="/radar" class="<%= page==='radar'?'active':'' %>">Radar</a>
+    <a href="/asteroid/99942" class="<%= page==='asteroid'?'active':'' %>">Catalog</a>
+    <a href="/methodology" class="<%= page==='methodology'?'active':'' %>">Methodology</a>
+  </div>
+  <div class="right">
+    <span class="live-dot">Live Data</span>
+    <a href="/radar" class="btn btn-cobalt">
+      Open Radar
+      <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+    </a>
+  </div>
+</nav>
