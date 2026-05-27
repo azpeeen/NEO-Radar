@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  
+  <g transform="translate(32 32) rotate(-18)">
+    <ellipse cx="0" cy="0" rx="26" ry="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"></ellipse>
+    <circle cx="18" cy="-5.4" r="2.2" fill="currentColor"></circle>
+    <circle cx="-15" cy="5.6" r="2.2" fill="currentColor"></circle>
+  </g>
+  
+  <path d="M32 6 L34.6 30 L48 32 L34.6 34 L32 58 L29.4 34 L16 32 L29.4 30 Z" fill="currentColor"></path>
+  
+  <path d="M32 24 L33 31 L36 32 L33 33 L32 40 L31 33 L28 32 L31 31 Z" fill="#050508"></path>
+</svg>

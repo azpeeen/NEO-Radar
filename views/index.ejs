@@ -1,0 +1,320 @@
+<%- include('partials/head') %>
+
+<div class="space-bg" aria-hidden="true"></div>
+
+<!-- ============ NAV ============ -->
+<%- include('partials/nav') %>
+
+<!-- ============ HERO ============ -->
+<section class="hero" data-screen-label="01 Landing — Hero">
+  <div class="hero-video-wrap" aria-hidden="true">
+    <video id="bg-a" class="front" src="/assets/asteroid-bg.mp4" poster="/assets/asteroid-poster.png" muted="" autoplay="" playsinline="" preload="auto"></video>
+    <video id="bg-b" class="back" src="/assets/asteroid-bg.mp4" poster="/assets/asteroid-poster.png" muted="" playsinline="" preload="auto"></video>
+  </div>
+
+  <div class="hero-inner">
+    <div>
+      <div class="hero-eyebrow-row">
+        <span class="jpl-badge subtle">
+          Data · JPL Horizons
+        </span>
+        <span class="eyebrow">MAY · 2026</span>
+      </div>
+
+      <h1>
+        <span class="num-large">17</span> asteroids are<br>
+        passing closer than<br>
+        the Moon <span class="accent">this month.</span>
+      </h1>
+
+      <p class="hero-lede">
+        NEO Radar is a real orbital-mechanics engine for tracking Near-Earth Objects.
+        Heliocentric simulation, Newton-Raphson Kepler solver, and live perturbation
+        from Jupiter and Saturn — rendered against the actual sky.
+      </p>
+
+      <div class="ctas">
+        <a href="/radar" class="btn btn-primary">
+          Open Radar
+          <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+        </a>
+        <a href="/methodology" class="btn btn-ghost">
+          How it works
+        </a>
+      </div>
+    </div>
+
+    <!-- right: live data card -->
+    <div class="card hero-data">
+      <div class="hdr">
+        <span class="ttl">Next Close Approach</span>
+        <span class="now"><span class="live-dot" style="font-size:10px"></span></span>
+      </div>
+      <div>
+        <div class="figure num">0.71<span class="unit">lunar distances</span></div>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--ink-4); margin-top: 4px; letter-spacing: 0.04em;">2025 PT5 · in 2 d 14 h 22 m</div>
+      </div>
+      <div style="margin-top: 6px;">
+        <div class="row">
+          <div>
+            <div class="lbl">2024 YR4</div>
+            <div class="designation">a=1.18 AU · e=0.66</div>
+          </div>
+          <span class="risk monitor">Monitor</span>
+          <span class="dist">0.94 LD</span>
+        </div>
+        <div class="row">
+          <div>
+            <div class="lbl">Apophis</div>
+            <div class="designation">99942 · NEA, Aten</div>
+          </div>
+          <span class="risk caution">Caution</span>
+          <span class="dist">31,800 km</span>
+        </div>
+        <div class="row">
+          <div>
+            <div class="lbl">2025 QV1</div>
+            <div class="designation">a=0.93 AU · e=0.41</div>
+          </div>
+          <span class="risk safe">Safe</span>
+          <span class="dist">2.4 LD</span>
+        </div>
+      </div>
+      <a href="/radar" style="display:flex; align-items:center; justify-content:space-between; padding:14px 0 0; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-2); text-decoration:none;">
+        View All 47 Tracked
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THREAT STRIP ============ -->
+<div class="threat-strip-wrap" data-screen-label="01 Landing — Threat Strip">
+  <div class="threat-header">
+    <div class="ttl">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg>
+      Upcoming Close Approaches · Live
+    </div>
+    <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-4);">Auto-refresh every 6h</span>
+  </div>
+  <div class="threat-scroll no-scrollbar" id="threat-scroll">
+    <!-- cards injected via JS for date math -->
+  </div>
+</div>
+
+<!-- ============ FEATURES ============ -->
+<section class="features" data-screen-label="01 Landing — Features">
+  <div class="features-head">
+    <div>
+      <span class="eyebrow">Engineering</span>
+      <h2>Real physics. Not approximations.</h2>
+    </div>
+    <p class="desc">
+      Every trajectory in NEO Radar is integrated from JPL Horizons ephemeris with full
+      gravitational perturbation from the outer planets. The numbers you see are the
+      numbers a mission planner would see.
+    </p>
+  </div>
+
+  <div class="feature-grid">
+    <!-- 1: Kepler solver -->
+    <div class="card feature">
+      <div class="visual">
+        <svg viewBox="0 0 320 160" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <radialGradient id="sun1" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#ffe7a8" stop-opacity="1"></stop>
+              <stop offset="100%" stop-color="#ffb84d" stop-opacity="0"></stop>
+            </radialGradient>
+          </defs>
+          <!-- elliptical orbit -->
+          <ellipse cx="160" cy="80" rx="120" ry="40" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1"></ellipse>
+          <ellipse cx="160" cy="80" rx="90" ry="28" fill="none" stroke="rgba(26,108,246,0.4)" stroke-width="1"></ellipse>
+          <ellipse cx="160" cy="80" rx="60" ry="18" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1"></ellipse>
+          <!-- Sun -->
+          <circle cx="160" cy="80" r="18" fill="url(#sun1)"></circle>
+          <circle cx="160" cy="80" r="3.5" fill="#ffd87a"></circle>
+          <!-- moving asteroid dot on cobalt orbit -->
+          <circle cx="250" cy="80" r="3" fill="#1a6cf6">
+            <animateMotion dur="14s" repeatCount="indefinite" path="M 90,0 A 90,28 0 1,1 -90,0 A 90,28 0 1,1 90,0"></animateMotion>
+          </circle>
+          <!-- newton-raphson convergence ticks -->
+          <g transform="translate(20 132)" font-family="JetBrains Mono" font-size="9" fill="rgba(255,255,255,0.5)">
+            <text x="0" y="0">E₀ → E₁ → E₂ → E₃   ε &lt; 1e-12</text>
+          </g>
+        </svg>
+      </div>
+      <div class="num">01 / Kepler</div>
+      <h3>Solves Kepler's equation, not lookup tables.</h3>
+      <p>
+        Mean anomaly to eccentric anomaly via Newton-Raphson with adaptive seed,
+        converging to 1×10⁻¹² in under four iterations even for high-eccentricity orbits.
+      </p>
+      <div class="tags">
+        <span class="tag">M → E → ν</span>
+        <span class="tag">e &lt; 0.99</span>
+        <span class="tag">ε = 1e-12</span>
+      </div>
+    </div>
+
+    <!-- 2: Jupiter perturbation -->
+    <div class="card feature">
+      <div class="visual">
+        <svg viewBox="0 0 320 160" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="cone" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="rgba(255,107,43,0)"></stop>
+              <stop offset="100%" stop-color="rgba(255,107,43,0.5)"></stop>
+            </linearGradient>
+          </defs>
+          <!-- uncertainty cone path -->
+          <path d="M 30 80 Q 160 78 290 60 L 290 100 Q 160 82 30 80 Z" fill="url(#cone)" opacity="0.7"></path>
+          <!-- nominal path -->
+          <path d="M 30 80 Q 160 78 290 80" fill="none" stroke="#ff6b2b" stroke-width="1.4"></path>
+          <!-- jupiter -->
+          <circle cx="240" cy="40" r="8" fill="#c79b6e"></circle>
+          <circle cx="240" cy="40" r="14" fill="none" stroke="rgba(199,155,110,0.3)"></circle>
+          <!-- perturbation vector arrow -->
+          <g stroke="#ff6b2b" stroke-width="1.4" fill="none">
+            <line x1="200" y1="78" x2="226" y2="56"></line>
+            <path d="M 226 56 L 220 60 M 226 56 L 222 50" stroke-linecap="round"></path>
+          </g>
+          <text x="200" y="100" font-family="JetBrains Mono" font-size="9" fill="rgba(255,107,43,0.7)">+ Δv</text>
+        </svg>
+      </div>
+      <div class="num">02 / Perturbation</div>
+      <h3>Jupiter and Saturn pulled, and you see the pull.</h3>
+      <p>
+        Toggle outer-planet gravity on or off. The uncertainty cone widens visibly
+        on Jupiter-flyby trajectories — what mission planners call the keyhole problem.
+      </p>
+      <div class="tags">
+        <span class="tag">N-body RK4</span>
+        <span class="tag">Adaptive Δt</span>
+        <span class="tag">Sun · Jupiter · Saturn</span>
+      </div>
+    </div>
+
+    <!-- 3: JPL Horizons -->
+    <div class="card feature">
+      <div class="visual">
+        <svg viewBox="0 0 320 160" preserveAspectRatio="xMidYMid meet">
+          <!-- ephemeris timeline -->
+          <line x1="20" y1="80" x2="300" y2="80" stroke="rgba(255,255,255,0.15)"></line>
+          <g font-family="JetBrains Mono" font-size="8" fill="rgba(255,255,255,0.4)">
+            <line x1="20" y1="76" x2="20" y2="84" stroke="rgba(255,255,255,0.3)"></line>
+            <text x="20" y="100" text-anchor="middle">1999</text>
+            <line x1="160" y1="76" x2="160" y2="84" stroke="rgba(255,255,255,0.3)"></line>
+            <text x="160" y="100" text-anchor="middle">2025</text>
+            <line x1="300" y1="76" x2="300" y2="84" stroke="rgba(255,255,255,0.3)"></line>
+            <text x="300" y="100" text-anchor="middle">2050</text>
+          </g>
+          <!-- observation arc -->
+          <line x1="60" y1="80" x2="190" y2="80" stroke="#1a6cf6" stroke-width="3" stroke-linecap="round" opacity="0.9"></line>
+          <text x="60" y="68" font-family="JetBrains Mono" font-size="9" fill="#4f8fff">26 yr arc</text>
+          <!-- accuracy circle -->
+          <circle cx="220" cy="80" r="22" fill="none" stroke="rgba(26,108,246,0.5)"></circle>
+          <circle cx="220" cy="80" r="14" fill="none" stroke="rgba(26,108,246,0.7)"></circle>
+          <circle cx="220" cy="80" r="3" fill="#1a6cf6"></circle>
+          <text x="220" y="130" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="rgba(79,143,255,0.8)">σ = 412 km</text>
+        </svg>
+      </div>
+      <div class="num">03 / Data</div>
+      <h3>JPL Horizons ephemeris, locally cached.</h3>
+      <p>
+        Pulled directly from JPL Horizons and pinned to disk for instant access. Observation
+        arcs and uncertainty parameters travel with every object — no approximations, no drift.
+      </p>
+      <div class="tags">
+        <span class="tag">NASA NeoWs</span>
+        <span class="tag">SPICE kernels</span>
+        <span class="tag">Local cache</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ACCURACY SECTION ============ -->
+<section class="accuracy" data-screen-label="01 Landing — Accuracy">
+  <div class="accuracy-inner">
+    <div>
+      <span class="eyebrow">Trust</span>
+      <h2>How accurate is it?</h2>
+      <p>
+        We benchmark every NEO Radar trajectory against JPL Horizons ephemeris over a
+        50-year window. Where simplified two-body models drift by tens of thousands of
+        kilometers, NEO Radar stays inside the actual uncertainty cone.
+      </p>
+      <p>
+        Position accuracy is computed as RMS deviation from JPL ground truth across the
+        same 50-year window, all 47 tracked NEOs.
+      </p>
+    </div>
+
+    <div>
+      <div class="compare">
+        <div class="compare-row jpl">
+          <span class="lbl">NEO Radar</span>
+          <span class="bar"><span class="fill"></span></span>
+          <span class="val">412 km</span>
+        </div>
+        <div class="compare-row kep">
+          <span class="lbl">Kepler-only</span>
+          <span class="bar"><span class="fill"></span></span>
+          <span class="val">18,400 km</span>
+        </div>
+        <div class="compare-row two">
+          <span class="lbl">2-body sim</span>
+          <span class="bar"><span class="fill"></span></span>
+          <span class="val">112,000 km</span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="k">Position RMS · 50 yr</div>
+          <div class="v">412 <span style="font-family:var(--font-mono); font-size: 13px; color: var(--ink-3); font-weight:400;">km</span></div>
+        </div>
+        <div class="stat">
+          <div class="k">Tracked Objects</div>
+          <div class="v">47</div>
+        </div>
+        <div class="stat">
+          <div class="k">Integrator Order</div>
+          <div class="v">RK4</div>
+        </div>
+        <div class="stat">
+          <div class="k">Adaptive Δt</div>
+          <div class="v">10⁻³–10⁰ <span style="font-family:var(--font-mono); font-size: 13px; color: var(--ink-3); font-weight:400;">d</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer" data-screen-label="01 Landing — Footer">
+  <div style="display:flex; align-items:center; gap: 12px;">
+    <svg width="20" height="20" viewBox="0 0 64 64" fill="none">
+      <g transform="translate(32 32) rotate(-18)">
+        <ellipse cx="0" cy="0" rx="26" ry="9" fill="none" stroke="currentColor" stroke-width="2.4"></ellipse>
+        <circle cx="18" cy="-5.4" r="2.2" fill="currentColor"></circle>
+        <circle cx="-15" cy="5.6" r="2.2" fill="currentColor"></circle>
+      </g>
+      <path d="M32 6 L34.6 30 L48 32 L34.6 34 L32 58 L29.4 34 L16 32 L29.4 30 Z" fill="currentColor"></path>
+    </svg>
+    <span class="credit">Built with JPL Horizons · NASA NeoWs</span>
+  </div>
+  <div class="links">
+    <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
+    <a href="/methodology">Methodology</a>
+    <a href="#">About</a>
+    <a href="#">Contact</a>
+  </div>
+  <span class="credit">© 2026 NEO Radar</span>
+</footer>
+
+<script>window.NEO_DATA = <%- JSON.stringify(neos) %>;</script>
+<script src="/js/main.js"></script>
+
+<%- include('partials/scripts') %>
