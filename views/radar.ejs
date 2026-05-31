@@ -188,8 +188,25 @@
     }
     .sidebar.sheet-open .sheet-chevron { transform: rotate(180deg); }
 
-    /* Canvas corner overlays: hide the right one on mobile (too narrow) */
-    .canvas-overlay.corner-overlay:last-of-type { display: none; }
+    /* Canvas corner overlays: hide both on mobile — technical info not needed on small screens */
+    .canvas-overlay.corner-overlay { display: none; }
+
+    /* Timezone row inside bottom sheet */
+    .sheet-tz {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-top: 1px solid var(--line);
+      margin-top: 8px;
+    }
+    .sheet-label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+    }
 
     /* Legend: hide by default on mobile (accessible via sidebar) */
     .legend { display: none; }
@@ -475,17 +492,14 @@
       <div class="control"><div class="label"><span class="t">Uncertainty Cone</span><span class="d">Widens near gravitational keyholes</span></div><div class="toggle on" id="tg-unc"></div></div>
       <div class="control"><div class="label"><span class="t">Orbit Trails</span><span class="d">Persistent path history</span></div><div class="toggle on" id="tg-trail"></div></div>
       <div class="control"><div class="label"><span class="t">Inner Planets</span><span class="d">Mercury · Venus · Mars</span></div><div class="toggle" id="tg-inner"></div></div>
-      <div class="control">
-        <div class="label">
-          <span class="t">Display timezone</span>
-          <span class="d">Clock only · physics uses UTC/J2000</span>
-        </div>
-        <div class="tz-dropdown" id="tz-dropdown-mob">
-          <button class="tz-trigger" id="tz-trigger-mob" type="button">
-            <span id="tz-current-mob">UTC</span>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      <div class="sheet-tz">
+        <span class="sheet-label">Timezone</span>
+        <div class="tz-dropdown" id="tz-dropdown-mobile">
+          <button class="tz-trigger" id="tz-trigger-mobile" type="button">
+            <span id="tz-current-mobile">UTC</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4l3 3 3-3"/></svg>
           </button>
-          <ul class="tz-menu" id="tz-menu-mob">
+          <ul class="tz-menu" id="tz-menu-mobile">
             <li data-tz="UTC">UTC</li>
             <li data-tz="America/Sao_Paulo">BRT (Brasília)</li>
             <li data-tz="America/New_York">EST (New York)</li>
@@ -947,9 +961,9 @@ renderList(); renderSelected();
     { trigger: document.getElementById('tz-trigger'),
       menu:    document.getElementById('tz-menu'),
       current: document.getElementById('tz-current') },
-    { trigger: document.getElementById('tz-trigger-mob'),
-      menu:    document.getElementById('tz-menu-mob'),
-      current: document.getElementById('tz-current-mob') },
+    { trigger: document.getElementById('tz-trigger-mobile'),
+      menu:    document.getElementById('tz-menu-mobile'),
+      current: document.getElementById('tz-current-mobile') },
   ].filter(function (d) { return d.trigger && d.menu && d.current; });
 
   function closeAll() {
