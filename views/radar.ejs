@@ -572,7 +572,7 @@ function _updateLiveBtn() {
   document.getElementById('live-label').textContent = isLive ? '● LIVE' : '→ LIVE';
 }
 
-document.getElementById('btn-live').addEventListener('click', () => {
+function _handleLive() {
   state.simTime    = _nowSimDays();  // snap to real current time
   state.playing    = true;           // resume if paused
   state.speed      = 1.0;
@@ -581,6 +581,11 @@ document.getElementById('btn-live').addEventListener('click', () => {
   document.getElementById('play-ic').innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
   document.getElementById('speed-val').textContent = '×1.0';
   _updateLiveBtn();
+}
+document.getElementById('btn-live').addEventListener('click', _handleLive);
+document.getElementById('btn-live').addEventListener('touchend', function (e) {
+  e.preventDefault(); // suppress the ghost click that follows touchend on mobile
+  _handleLive();
 });
 
 // Poll every second: update button state + optionally sync clock display
@@ -590,8 +595,54 @@ _updateLiveBtn();
 // ─── Bottom-sheet (mobile) ────────────────────────────────────
 const _sidebar     = document.getElementById('radar-sidebar');
 const _sheetHandle = document.getElementById('sheet-handle');
-if (_sheetHandle) {
-  _sheetHandle.addEventListener('click', () => {
+
+if (_sheetHandle && _sidebar) {
+  var _dragStartY  = null;
+  var _dragDeltaY  = 0;
+  var CLOSE_THRESH = 80; // px of downward drag required to close
+
+  _sheetHandle.addEventListener('touchstart', function (e) {
+    _dragStartY = e.touches[0].clientY;
+    _dragDeltaY = 0;
+    // Remove CSS transition so the sheet tracks the finger in real time
+    _sidebar.style.transition = 'none';
+  }, { passive: true });
+
+  _sheetHandle.addEventListener('touchmove', function (e) {
+    if (_dragStartY === null) return;
+    _dragDeltaY = e.touches[0].clientY - _dragStartY;
+    // Only translate downward, and only when the sheet is currently open
+    if (_dragDeltaY > 0 && _sidebar.classList.contains('sheet-open')) {
+      _sidebar.style.transform = 'translateY(' + _dragDeltaY + 'px)';
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  _sheetHandle.addEventListener('touchend', function (e) {
+    e.preventDefault(); // suppress ghost click
+    // Re-enable smooth CSS transition for the snap animation
+    _sidebar.style.transition = '';
+    _sidebar.style.transform  = ''; // hand control back to CSS class
+
+    if (_sidebar.classList.contains('sheet-open')) {
+      // Drag down past threshold OR simple tap → close
+      if (_dragDeltaY > CLOSE_THRESH || Math.abs(_dragDeltaY) < 10) {
+        _sidebar.classList.remove('sheet-open');
+      }
+      // else: partial drag — spring back to open (CSS transition handles it)
+    } else {
+      // Sheet is collapsed: tap → open
+      if (Math.abs(_dragDeltaY) < 10) {
+        _sidebar.classList.add('sheet-open');
+      }
+    }
+
+    _dragStartY = null;
+    _dragDeltaY = 0;
+  }, { passive: false });
+
+  // Desktop fallback: mouse click toggles the sheet
+  _sheetHandle.addEventListener('click', function () {
     _sidebar.classList.toggle('sheet-open');
   });
 }
