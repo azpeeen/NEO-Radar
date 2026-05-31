@@ -1,4 +1,4 @@
-<nav class="nav" data-screen-label="01 Landing — Nav">
+<nav class="nav" data-screen-label="Nav">
   <a href="/" class="brand">
     <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
       <g transform="translate(32 32) rotate(-18)">
@@ -11,12 +11,16 @@
     <span class="name">NEO Radar</span>
     <span class="sub">v 1.0 · Heliocentric</span>
   </a>
+
+  <!-- Desktop links -->
   <div class="links">
     <a href="/" class="<%= page==='index'?'active':'' %>">Overview</a>
     <a href="/radar" class="<%= page==='radar'?'active':'' %>">Radar</a>
     <a href="/asteroid/99942" class="<%= page==='asteroid'?'active':'' %>">Catalog</a>
     <a href="/methodology" class="<%= page==='methodology'?'active':'' %>">Methodology</a>
   </div>
+
+  <!-- Desktop right -->
   <div class="right">
     <span class="live-dot">Live Data</span>
     <a href="/radar" class="btn btn-cobalt">
@@ -24,4 +28,84 @@
       <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
     </a>
   </div>
+
+  <!-- Mobile hamburger (hidden ≥768px via CSS) -->
+  <button class="nav-hamburger" id="nav-hamburger" aria-label="Open navigation" aria-expanded="false" aria-controls="nav-drawer">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
 </nav>
+
+<!-- Mobile drawer backdrop -->
+<div class="nav-backdrop" id="nav-backdrop" aria-hidden="true"></div>
+
+<!-- Mobile slide-in drawer -->
+<div class="nav-drawer" id="nav-drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" aria-hidden="true">
+  <div class="nav-drawer-header">
+    <a href="/" class="brand" style="text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:10px;">
+      <svg width="22" height="22" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <g transform="translate(32 32) rotate(-18)">
+          <ellipse cx="0" cy="0" rx="26" ry="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"></ellipse>
+          <circle cx="18" cy="-5.4" r="2.2" fill="currentColor"></circle>
+          <circle cx="-15" cy="5.6" r="2.2" fill="currentColor"></circle>
+        </g>
+        <path d="M32 6 L34.6 30 L48 32 L34.6 34 L32 58 L29.4 34 L16 32 L29.4 30 Z" fill="currentColor"></path>
+      </svg>
+      <span style="font-family:var(--font-display);font-weight:500;font-size:16px;">NEO Radar</span>
+    </a>
+    <button class="nav-drawer-close-btn" id="nav-drawer-close" aria-label="Close navigation">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <nav class="nav-drawer-links">
+    <a href="/" class="<%= page==='index'?'active':'' %>">Overview</a>
+    <a href="/radar" class="<%= page==='radar'?'active':'' %>">Radar</a>
+    <a href="/asteroid/99942" class="<%= page==='asteroid'?'active':'' %>">Catalog</a>
+    <a href="/methodology" class="<%= page==='methodology'?'active':'' %>">Methodology</a>
+  </nav>
+
+  <a href="/radar" class="nav-drawer-cta">
+    Open Radar
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+  </a>
+</div>
+
+<script>
+(function () {
+  var btn      = document.getElementById('nav-hamburger');
+  var drawer   = document.getElementById('nav-drawer');
+  var backdrop = document.getElementById('nav-backdrop');
+  var closeBtn = document.getElementById('nav-drawer-close');
+
+  function openDrawer() {
+    drawer.classList.add('open');
+    backdrop.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer() {
+    drawer.classList.remove('open');
+    backdrop.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+    drawer.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  btn.addEventListener('click', function () {
+    drawer.classList.contains('open') ? closeDrawer() : openDrawer();
+  });
+  backdrop.addEventListener('click', closeDrawer);
+  closeBtn.addEventListener('click', closeDrawer);
+  // Close on link tap so navigation feels instant
+  drawer.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', closeDrawer);
+  });
+  // Escape key
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+  });
+})();
+</script>
