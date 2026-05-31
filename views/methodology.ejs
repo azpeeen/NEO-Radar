@@ -366,6 +366,103 @@
     .fact-strip { grid-template-columns: 1fr; }
     .bodies { grid-template-columns: 1fr; }
     .limits li { grid-template-columns: 1fr; gap: 8px; }
+    /* Re-show stats sidebar below content as 2×2 grid */
+    aside.meta {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      order: 99;
+    }
+    aside.meta .card { margin-bottom: 0; }
+  }
+
+  /* ── Mobile ─────────────────────────────────────────────────── */
+  @media (max-width: 767px) {
+    main { padding: 24px 16px 64px; gap: 24px; }
+
+    /* TOC → collapsible dropdown */
+    .toc {
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      background: rgba(8,10,18,0.6);
+      overflow: hidden;
+    }
+    .toc .ttl {
+      padding: 13px 16px;
+      cursor: pointer;
+      margin-bottom: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .toc .ttl::after {
+      content: '▾';
+      font-size: 11px;
+      color: var(--ink-4);
+      transition: transform 240ms ease;
+      flex-shrink: 0;
+    }
+    .toc.toc-open .ttl::after { transform: rotate(180deg); }
+    .toc a {
+      border-left: none;
+      border-top: 1px solid var(--line);
+      padding: 0 16px;
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: max-height 220ms ease, padding 220ms, opacity 160ms;
+    }
+    .toc.toc-open a {
+      max-height: 46px;
+      padding: 12px 16px;
+      opacity: 1;
+    }
+    .toc.toc-open a.active { color: var(--ink); border-color: var(--cobalt); }
+
+    /* Hero */
+    .m-hero h1 { font-size: clamp(2.25rem, 9vw, 5rem); }
+    .m-hero .lede { font-size: 15px; }
+    .m-hero .meta { gap: 12px; }
+
+    /* Code blocks: horizontal scroll, never break layout */
+    .codeblock { overflow-x: auto; }
+    .codeblock pre { font-size: 11px; min-width: 480px; }
+
+    /* Equations: allow horizontal scroll on overflow */
+    .eq {
+      overflow-x: auto;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .eq .formula { min-width: 0; }
+
+    /* Convergence SVG: full width, responsive viewBox already set */
+    .converge svg { height: 120px; }
+
+    /* Arch diagram: allow scroll */
+    .arch { overflow-x: auto; }
+    .arch svg { min-width: 480px; }
+
+    /* Stats sidebar: 1-col at small */
+    aside.meta { grid-template-columns: 1fr; }
+
+    /* Chapters */
+    section.chapter { margin-bottom: 56px; padding-bottom: 40px; }
+    section.chapter h2 { font-size: 24px; }
+    section.chapter p { font-size: 14px; }
+
+    /* Body cards */
+    .body-card { padding: 14px 16px; }
+  }
+
+  @media (max-width: 479px) {
+    .m-hero h1 { font-size: clamp(1.9rem, 10vw, 2.8rem); }
+    aside.meta { grid-template-columns: 1fr; }
+    .fact-strip { font-size: 11px; }
+    .fact-strip .v { font-size: 18px; }
   }
 </style>
 
@@ -827,6 +924,7 @@ Renderer <span class="comment">/* canvas, never touches physics */</span></pre>
 
 <script>
 (function () {
+  // Scroll-spy
   const sections = ['frame','kepler','nbody','bodies','uncertainty','pipeline','arch','limits']
     .map(id => document.getElementById(id));
   const links = document.querySelectorAll('#toc a');
@@ -841,6 +939,15 @@ Renderer <span class="comment">/* canvas, never touches physics */</span></pre>
     });
   }, { rootMargin: '-30% 0px -55% 0px' });
   sections.forEach(function (s) { if (s) observer.observe(s); });
+
+  // Mobile TOC collapsible dropdown
+  const toc = document.getElementById('toc');
+  const ttl = toc ? toc.querySelector('.ttl') : null;
+  if (ttl) {
+    ttl.addEventListener('click', function () {
+      toc.classList.toggle('toc-open');
+    });
+  }
 })();
 </script>
 

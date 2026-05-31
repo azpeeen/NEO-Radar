@@ -80,6 +80,87 @@
     .pert-diff { grid-template-columns: 1fr; }
     .compare-strip .row { grid-template-columns: 1fr; gap: 12px; }
   }
+
+  /* ── Mobile ─────────────────────────────────────────────────── */
+  @media (max-width: 767px) {
+    main { padding: 0 16px; }
+
+    /* Header */
+    .a-header { padding: 48px 0 36px; }
+    .a-header h1 { font-size: clamp(2.5rem, 10vw, 5rem); }
+
+    /* Countdown: 4 cells → 2×2 */
+    .countdown .time { grid-template-columns: 1fr 1fr; }
+    .countdown .time .v { font-size: 28px; }
+    .countdown { padding: 20px; }
+    .countdown .meta { flex-direction: column; gap: 4px; }
+
+    /* Orbital elements: 2-col → 1-col */
+    .elements-grid { grid-template-columns: 1fr; }
+    .elements-grid .v { font-size: 20px; }
+
+    /* Mini orbit canvas: taller on mobile for clarity */
+    .mini-orbit { height: 280px; }
+
+    /* Approach table → card layout */
+    table.approaches thead { display: none; }
+    table.approaches tbody tr {
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      margin-bottom: 10px;
+      padding: 14px 16px;
+      background: rgba(8,10,18,0.4);
+    }
+    table.approaches tbody td {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 12.5px;
+    }
+    table.approaches tbody td:last-child { border-bottom: none; }
+    table.approaches tbody td::before {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+      flex-shrink: 0;
+      margin-right: 16px;
+    }
+    table.approaches td:nth-child(1)::before { content: 'Year'; }
+    table.approaches td:nth-child(2)::before { content: 'Date'; }
+    table.approaches td:nth-child(3)::before { content: 'Miss km'; }
+    table.approaches td:nth-child(4)::before { content: 'Miss LD'; }
+    table.approaches td:nth-child(5)::before { content: 'Velocity'; }
+    table.approaches td:nth-child(6)::before { content: 'Body'; }
+    table.approaches .past td { opacity: 0.6; }
+    table.approaches .now { border-color: rgba(255,107,43,0.35) !important; }
+
+    /* Section structure */
+    .a-section { padding: 48px 0; }
+
+    /* JPL stats: 2×2 → 1-col on small */
+    .jpl-stat .v { font-size: 32px; }
+
+    /* Perturbation chart */
+    .pert-canvas { height: 240px; }
+
+    /* Miss distance context strip */
+    .compare-strip .row .lbl { font-size: 13px; }
+    .compare-strip .row { padding: 16px 16px; }
+
+    /* Context note */
+    .context-note { font-size: 14px; }
+  }
+
+  @media (max-width: 479px) {
+    .a-header h1 { font-size: clamp(2rem, 11vw, 3rem); }
+    .jpl-grid { grid-template-columns: 1fr; }
+    .countdown .time .v { font-size: 24px; }
+  }
 </style>
 
 <div class="space-bg" aria-hidden="true"></div>

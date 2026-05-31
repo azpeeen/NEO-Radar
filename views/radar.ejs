@@ -100,8 +100,106 @@
   .btn-live.is-live { color:var(--cobalt-soft); border-color:rgba(26,108,246,0.35); }
   .btn-live .live-dot { width:6px; height:6px; border-radius:50%; background:var(--cobalt-soft); flex-shrink:0; }
   .btn-live.is-live .live-dot { animation:pulse-live 1.4s ease-in-out infinite; }
-  @media (max-width: 1100px) { .radar-shell { grid-template-columns: 1fr; grid-template-rows: 60px 60vh 1fr; grid-template-areas: "topbar" "canvas" "sidebar"; } .sidebar { border-left: none; border-top: 1px solid var(--line); } }
-  @media (max-width: 700px) { .topbar .links { display: none; } .topbar .left { gap: 14px; } }
+
+  /* ── Tablet ────────────────────────────────────────────────── */
+  @media (max-width: 1100px) {
+    .radar-shell { grid-template-columns: 1fr; grid-template-rows: 60px 60vh 1fr; grid-template-areas: "topbar" "canvas" "sidebar"; }
+    .sidebar { border-left: none; border-top: 1px solid var(--line); }
+  }
+
+  /* ── Mobile: canvas full screen, sidebar = bottom sheet ────── */
+  @media (max-width: 767px) {
+    .radar-shell {
+      grid-template-columns: 1fr;
+      grid-template-rows: 48px 1fr;
+      grid-template-areas: "topbar" "canvas";
+      height: 100dvh;
+    }
+    .topbar { height: 48px; padding: 0 12px; gap: 10px; }
+    .topbar .left { gap: 12px; }
+    .topbar .brand .name { font-size: 13px; }
+    .topbar .links { display: none; }
+    .sim-clock { padding: 5px 10px; gap: 8px; }
+    .sim-clock .lbl { display: none; }
+    .sim-clock .val { font-size: 11px; }
+    .btn-live { padding: 5px 10px; font-size: 9px; letter-spacing: 0.1em; }
+
+    /* Bottom sheet */
+    .sidebar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      z-index: 20;
+      border-left: none;
+      border-top: 1px solid var(--line);
+      border-radius: 16px 16px 0 0;
+      height: auto;
+      max-height: 72vh;
+      overflow: hidden;
+      transform: translateY(calc(100% - 56px));
+      transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
+      will-change: transform;
+      /* Home indicator clearance */
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .sidebar.sheet-open {
+      transform: translateY(0);
+      overflow-y: auto;
+    }
+
+    /* Handle bar */
+    .sheet-handle {
+      display: flex !important;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      padding: 0 16px;
+      cursor: pointer;
+      background: rgba(8,9,16,0.97);
+      border-radius: 16px 16px 0 0;
+      flex-shrink: 0;
+      position: sticky; top: 0; z-index: 1;
+      user-select: none; -webkit-user-select: none;
+      border-bottom: 1px solid var(--line);
+      min-height: 44px;
+    }
+    .sheet-handle-pip {
+      position: absolute;
+      top: 10px; left: 50%; transform: translateX(-50%);
+      width: 32px; height: 4px;
+      border-radius: 2px;
+      background: var(--line-strong);
+    }
+    .sheet-summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .sheet-summary-name {
+      font-family: var(--font-display);
+      font-weight: 500;
+      font-size: 14px;
+    }
+    .sheet-chevron {
+      margin-left: auto;
+      color: var(--ink-4);
+      transition: transform 300ms;
+      flex-shrink: 0;
+    }
+    .sidebar.sheet-open .sheet-chevron { transform: rotate(180deg); }
+
+    /* Canvas corner overlays: hide the right one on mobile (too narrow) */
+    .canvas-overlay.corner-overlay:last-of-type { display: none; }
+
+    /* Legend: hide by default on mobile (accessible via sidebar) */
+    .legend { display: none; }
+    /* Scale bar stays visible */
+  }
+
+  @media (max-width: 479px) {
+    .sim-clock .val { font-size: 10px; }
+    .btn-live { display: none; } /* too cramped; accessible via sheet */
+  }
 </style>
 
 <div class="radar-shell">
@@ -159,7 +257,17 @@
     </div>
   </div>
 
-  <aside class="sidebar" data-screen-label="02 Radar — Sidebar">
+  <aside class="sidebar" id="radar-sidebar" data-screen-label="02 Radar — Sidebar">
+    <!-- Mobile bottom-sheet handle (hidden on desktop via CSS display:none) -->
+    <div class="sheet-handle" id="sheet-handle" style="display:none;" role="button" aria-label="Toggle sidebar">
+      <div class="sheet-handle-pip"></div>
+      <div class="sheet-summary">
+        <span class="sheet-summary-name" id="sheet-name">Apophis</span>
+        <span class="risk caution" id="sheet-risk">Caution</span>
+      </div>
+      <svg class="sheet-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg>
+    </div>
+
     <div class="sb-section sel-card" id="sel-card">
       <div class="sb-h"><span>Selected Object</span><span class="jpl-badge subtle" style="padding:4px 9px;font-size:9px;">Data · JPL Horizons</span></div>
       <div class="title-row">
@@ -281,7 +389,7 @@ const state = {
   hoverId: null, filter: 'all', search: '', playing: true, speed: 1.0,
   daysPerSec: 12, simTime: _initSimTime,
   jupiter: true, saturn: true, uncertainty: true, trails: true, inner: false,
-  pxPerAU: 80, zoom: 1.0,
+  pxPerAU: 80, zoom: 1.0, panX: 0, panY: 0,
 };
 
 function solveKepler(M, e) {
@@ -304,7 +412,7 @@ function resize() {
   cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0);
 }
 resize(); window.addEventListener('resize', resize);
-function ws(x,y){return{x:W/2+x*state.pxPerAU*state.zoom, y:H/2+y*state.pxPerAU*state.zoom};}
+function ws(x,y){return{x:W/2+state.panX+x*state.pxPerAU*state.zoom, y:H/2+state.panY+y*state.pxPerAU*state.zoom};}
 
 function drawOrbit(o, color, alpha=0.18) {
   ctx.beginPath();
@@ -478,6 +586,74 @@ document.getElementById('btn-live').addEventListener('click', () => {
 // Poll every second: update button state + optionally sync clock display
 setInterval(() => { _updateLiveBtn(); }, 1000);
 _updateLiveBtn();
+
+// ─── Bottom-sheet (mobile) ────────────────────────────────────
+const _sidebar     = document.getElementById('radar-sidebar');
+const _sheetHandle = document.getElementById('sheet-handle');
+if (_sheetHandle) {
+  _sheetHandle.addEventListener('click', () => {
+    _sidebar.classList.toggle('sheet-open');
+  });
+}
+// Update the collapsed summary whenever selection changes
+function _updateSheetSummary(n) {
+  const nameEl = document.getElementById('sheet-name');
+  const riskEl = document.getElementById('sheet-risk');
+  if (nameEl) nameEl.textContent = n.name;
+  if (riskEl) { riskEl.className = 'risk ' + n.risk; riskEl.textContent = n.label; }
+}
+
+// ─── Touch controls ───────────────────────────────────────────
+(function () {
+  let pinchDist = null;
+  let panStart  = null;
+
+  cv.addEventListener('touchstart', function (e) {
+    if (e.touches.length === 2) {
+      pinchDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      panStart = null;
+      e.preventDefault();
+    } else if (e.touches.length === 1) {
+      panStart  = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      pinchDist = null;
+    }
+  }, { passive: false });
+
+  cv.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    if (e.touches.length === 2 && pinchDist !== null) {
+      var d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      state.zoom = Math.max(0.3, Math.min(3, state.zoom * (d / pinchDist)));
+      pinchDist  = d;
+      document.getElementById('scale-val').textContent =
+        '1 AU = ' + (state.pxPerAU * state.zoom).toFixed(0) + ' px';
+    } else if (e.touches.length === 1 && panStart) {
+      state.panX += e.touches[0].clientX - panStart.x;
+      state.panY += e.touches[0].clientY - panStart.y;
+      panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  }, { passive: false });
+
+  cv.addEventListener('touchend', function (e) {
+    if (e.touches.length < 2) pinchDist = null;
+    if (e.touches.length === 0) panStart = null;
+  });
+})();
+
+// Wrap renderSelected so mobile sheet summary stays in sync
+renderSelected = (function (orig) {
+  return function () {
+    orig();
+    var n = NEOS.find(function (x) { return x.id === state.selectedId; });
+    if (n) _updateSheetSummary(n);
+  };
+}(renderSelected));
 
 renderList(); renderSelected();
 </script>
