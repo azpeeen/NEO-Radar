@@ -22,9 +22,13 @@
       </div>
 
       <h1>
-        <span class="num-large">17</span> asteroids are<br>
-        passing closer than<br>
-        the Moon <span class="accent">this month.</span>
+        <% if (monthlyCount > 0) { %>
+          <span class="num-large"><%= monthlyCount %></span> <%= monthlyCount === 1 ? 'asteroid is' : 'asteroids are' %> passing through<br>
+          Earth's neighborhood <span class="accent">this month.</span>
+        <% } else { %>
+          The next close approach is in<br>
+          <span class="num-large"><%= nextApproach.days %></span> <span class="accent">days.</span>
+        <% } %>
       </h1>
 
       <p class="hero-lede">
@@ -95,7 +99,9 @@
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg>
       Upcoming Close Approaches · Live
     </div>
-    <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-4);">Auto-refresh every 6h</span>
+    <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.16em; color: var(--ink-4);">
+      <% if (hoursAgo !== null) { %>Updated <%= hoursAgo %>h ago · <% } %>NASA NeoWs
+    </span>
   </div>
   <div class="threat-scroll no-scrollbar" id="threat-scroll">
     <!-- cards injected via JS for date math -->
