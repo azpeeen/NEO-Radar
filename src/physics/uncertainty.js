@@ -1,84 +1,163 @@
 'use strict';
 
-// Monte Carlo covariance propagation.
-// Draws N particles from a 6D Gaussian, integrates each forward via RK4,
-// returns 3σ position envelope per output epoch.
-// ZERO imports from renderer, DOM, or canvas.
+/**
+ * uncertainty.js — Monte Carlo propagation of orbital uncertainty.
+ *
+ * PURE MODULE. Zero dependencies on DOM, canvas, or rendering.
+ *
+ * The uncertainty cone shown in the Radar is the 3σ envelope of position
+ * deviation, sampled by Monte-Carlo propagation of the JPL Horizons
+ * covariance matrix. We draw N particles from a multivariate Gaussian over
+ * the six orbital elements, integrate each forward through the same RK4
+ * engine, and fit a position ellipsoid to the cloud at every output epoch.
+ *
+ * The cone widens dramatically near planetary close approaches — the
+ * gravitational keyhole effect, where small initial position errors get
+ * amplified by a close encounter.
+ */
 
-const { rk4Step } = require('./integrator');
+const { keplerToCartesian } = require('./bodies');
+const { propagate } = require('./integrator');
 
-function sampleStandardNormal() {
-  // Box-Muller transform
-  const u1 = Math.random() || 1e-15;
-  const u2 = Math.random();
-  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+/**
+ * Box-Muller transform: two independent standard-normal samples.
+ * @returns {[number, number]}
+ */
+function gaussianPair() {
+  let u1 = 0, u2 = 0;
+  while (u1 === 0) u1 = Math.random();
+  while (u2 === 0) u2 = Math.random();
+  const mag = Math.sqrt(-2 * Math.log(u1));
+  return [mag * Math.cos(2 * Math.PI * u2), mag * Math.sin(2 * Math.PI * u2)];
 }
 
-// Lower-triangular Cholesky decomposition of a 6×6 covariance matrix.
-function cholesky(cov) {
-  const n = 6;
-  const L = Array.from({ length: n }, () => new Float64Array(n));
+/**
+ * Draw a vector of n standard-normal samples.
+ * @param {number} n
+ * @returns {number[]}
+ */
+function standardNormalVector(n) {
+  const out = [];
+  while (out.length < n) {
+    const [a, b] = gaussianPair();
+    out.push(a);
+    if (out.length < n) out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Cholesky decomposition of a symmetric positive-definite matrix.
+ * Returns lower-triangular L such that L·Lᵀ = A.
+ * Used to transform standard-normal samples into correlated samples
+ * matching the covariance matrix.
+ *
+ * @param {number[][]} A - symmetric PD matrix (6×6 for orbital elements)
+ * @returns {number[][]} lower-triangular L
+ */
+function cholesky(A) {
+  const n = A.length;
+  const L = Array.from({ length: n }, () => new Array(n).fill(0));
+
   for (let i = 0; i < n; i++) {
     for (let j = 0; j <= i; j++) {
-      let s = cov[i][j];
-      for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
-      L[i][j] = j === i ? Math.sqrt(Math.max(s, 0)) : s / (L[j][j] || 1e-15);
+      let sum = 0;
+      for (let k = 0; k < j; k++) sum += L[i][k] * L[j][k];
+
+      if (i === j) {
+        const d = A[i][i] - sum;
+        L[i][j] = Math.sqrt(Math.max(d, 1e-18)); // guard against round-off
+      } else {
+        L[i][j] = (A[i][j] - sum) / L[j][j];
+      }
     }
   }
   return L;
 }
 
-function drawParticle(state, L) {
-  const z = Array.from({ length: 6 }, sampleStandardNormal);
-  const d = new Float64Array(6);
-  for (let i = 0; i < 6; i++)
-    for (let j = 0; j <= i; j++)
-      d[i] += L[i][j] * z[j];
-
-  return {
-    pos: [state.pos[0] + d[0], state.pos[1] + d[1], state.pos[2] + d[2]],
-    vel: [state.vel[0] + d[3], state.vel[1] + d[4], state.vel[2] + d[5]],
-  };
+/**
+ * Sample correlated element perturbations: Δx = L·z, where z ~ N(0, I).
+ * @param {number[][]} L - Cholesky factor of covariance
+ * @returns {number[]} perturbation vector (length 6)
+ */
+function sampleElementPerturbation(L) {
+  const n = L.length;
+  const z = standardNormalVector(n);
+  const out = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let j = 0; j <= i; j++) s += L[i][j] * z[j];
+    out[i] = s;
+  }
+  return out;
 }
 
-function mean(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
-function stddev(arr, m) {
-  return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length);
-}
-
-// state:    { pos, vel }                — nominal initial state
-// cov6x6:   6×6 covariance matrix      — position+velocity uncertainties (AU, AU/day)
-// perturbers: [{ pos, mass }]           — gravitational bodies for integration
-// epochs:   number[]                    — days from epoch to sample
-// N:        number of Monte Carlo draws (default 256)
-// returns:  [{ epoch, center, sigma3 }]
-function propagateUncertainty(state, cov6x6, perturbers, epochs, N = 256) {
+/**
+ * Propagate uncertainty for one object via Monte Carlo.
+ *
+ * @param {object} nominalElements - { a, e, i, Omega, omega, M }
+ * @param {number[][]} cov6x6      - 6×6 covariance matrix over [a,e,i,Ω,ω,M]
+ * @param {object} window          - { t0, t1, outputDt } in days
+ * @param {(t:number)=>Array} ephemeris - perturber positions vs time
+ * @param {object} [opts]
+ * @param {number} [opts.N=256]    - number of Monte Carlo particles
+ * @returns {Array<{ t:number, mean:number[], sigma3:number }>}
+ *          per-epoch mean position and 3σ position spread (AU)
+ */
+function propagateUncertainty(nominalElements, cov6x6, window, ephemeris, opts = {}) {
+  const N = opts.N ?? 256;
+  const { t0, t1, outputDt } = window;
   const L = cholesky(cov6x6);
-  let particles = Array.from({ length: N }, () => drawParticle(state, L));
+
+  const elementKeys = ['a', 'e', 'i', 'Omega', 'omega', 'M'];
+
+  // Propagate each particle, collecting position frames
+  const allRuns = [];
+  for (let p = 0; p < N; p++) {
+    const dp = sampleElementPerturbation(L);
+    const perturbed = {};
+    elementKeys.forEach((k, idx) => { perturbed[k] = nominalElements[k] + dp[idx]; });
+
+    const { r, v } = keplerToCartesian(perturbed);
+    const state0 = [r[0], r[1], r[2], v[0], v[1], v[2]];
+    const frames = propagate(state0, t0, t1, outputDt, ephemeris, opts);
+    allRuns.push(frames);
+  }
+
+  // At each output epoch, compute mean position and 3σ spread
+  const numEpochs = allRuns[0].length;
   const envelope = [];
 
-  let t = 0;
-  const sortedEpochs = [...epochs].sort((a, b) => a - b);
+  for (let ep = 0; ep < numEpochs; ep++) {
+    let mx = 0, my = 0, mz = 0;
+    for (let p = 0; p < N; p++) {
+      const s = allRuns[p][ep].state;
+      mx += s[0]; my += s[1]; mz += s[2];
+    }
+    mx /= N; my /= N; mz /= N;
 
-  for (const epoch of sortedEpochs) {
-    const dt = epoch - t;
-    if (dt <= 0) continue;
-    particles = particles.map(p => rk4Step(p, perturbers, dt));
-    t = epoch;
-
-    const xs = particles.map(p => p.pos[0]);
-    const ys = particles.map(p => p.pos[1]);
-    const zs = particles.map(p => p.pos[2]);
-    const mx = mean(xs), my = mean(ys), mz = mean(zs);
+    // RMS radial spread about the mean
+    let sumSq = 0;
+    for (let p = 0; p < N; p++) {
+      const s = allRuns[p][ep].state;
+      const dx = s[0] - mx, dy = s[1] - my, dz = s[2] - mz;
+      sumSq += dx * dx + dy * dy + dz * dz;
+    }
+    const sigma = Math.sqrt(sumSq / N);
 
     envelope.push({
-      epoch,
-      center: [mx, my, mz],
-      sigma3: [3 * stddev(xs, mx), 3 * stddev(ys, my), 3 * stddev(zs, mz)],
+      t: allRuns[0][ep].t,
+      mean: [mx, my, mz],
+      sigma3: 3 * sigma,
     });
   }
 
   return envelope;
 }
 
-module.exports = { propagateUncertainty };
+module.exports = {
+  propagateUncertainty,
+  cholesky,
+  sampleElementPerturbation,
+  gaussianPair,
+};

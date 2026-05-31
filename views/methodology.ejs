@@ -502,14 +502,28 @@
           </g>
           <line x1="40" y1="144" x2="680" y2="144" stroke="rgba(26,108,246,0.4)" stroke-dasharray="3 4"/>
           <text x="680" y="138" text-anchor="end" font-family="JetBrains Mono" font-size="9" fill="#4f8fff">ε = 10⁻¹²</text>
-          <polyline points="120,40 240,75 360,108 480,138 600,144" fill="none" stroke="#1a6cf6" stroke-width="1.5"/>
+          <%
+            // Render convergence residuals from the real Newton-Raphson trace.
+            // y(r) = 24 + clamp(-log10(r), 0, 12) * 10
+            // x(i) = 120 * (i+1), max 5 iterations shown
+            const _res = keplerTrace.residuals;
+            const _pts = _res.slice(0, 5).map((r, i) => {
+              const log = Math.log10(Math.max(r, 1e-16));
+              const y = Math.min(144, Math.max(24, 24 + (-log) * 10));
+              return { x: 120 * (i + 1), y };
+            });
+            const _poly = _pts.map(p => `${p.x},${p.y}`).join(' ');
+          %>
+          <polyline points="<%= _poly %>" fill="none" stroke="#1a6cf6" stroke-width="1.5"/>
           <g fill="#1a6cf6">
-            <circle cx="120" cy="40" r="3.5"/>
-            <circle cx="240" cy="75" r="3.5"/>
-            <circle cx="360" cy="108" r="3.5"/>
-            <circle cx="480" cy="138" r="3.5"/>
-            <circle cx="600" cy="144" r="3.5"/>
+            <% _pts.forEach(p => { %>
+            <circle cx="<%= p.x %>" cy="<%= p.y %>" r="3.5"/>
+            <% }); %>
           </g>
+          <text x="<%= _pts[_pts.length-1].x + 12 %>" y="<%= _pts[_pts.length-1].y + 4 %>"
+                font-family="JetBrains Mono" font-size="9" fill="#4f8fff">
+            converged (<%= keplerTrace.iterations %> iters)
+          </text>
         </svg>
       </div>
     </section>
@@ -770,8 +784,8 @@ Renderer <span class="comment">/* canvas, never touches physics */</span></pre>
   <aside class="meta">
     <div class="card">
       <div class="k">Solver convergence</div>
-      <div class="v">3.4 <small>iters</small></div>
-      <p>Mean Newton-Raphson iterations to ε = 10⁻¹² across the 47-object catalog.</p>
+      <div class="v"><%= keplerTrace.iterations %> <small>iters</small></div>
+      <p>Newton-Raphson iterations to ε = 10⁻¹² for Apophis (e=0.191). Live result from <code>solveKeplerTraced()</code>.</p>
     </div>
     <div class="card">
       <div class="k">Integration accuracy</div>

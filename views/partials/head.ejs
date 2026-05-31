@@ -3,8 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+
 <title><%= typeof title !== 'undefined' ? title : 'NEO Radar — Real orbital mechanics for Near-Earth Objects' %></title>
-<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<meta name="description" content="Real orbital-mechanics engine for tracking Near-Earth Objects. Heliocentric N-body simulation with Newton-Raphson Kepler solver, RK4 adaptive integrator, and live perturbation from Jupiter and Saturn.">
+<meta name="robots" content="index,follow">
+
+<!-- Open Graph -->
+<meta property="og:type"        content="website">
+<meta property="og:title"       content="<%= typeof title !== 'undefined' ? title : 'NEO Radar — Real orbital mechanics for Near-Earth Objects' %>">
+<meta property="og:description" content="47 Near-Earth Objects tracked with full N-body integration. Real physics — Newton-Raphson Kepler solver, RK4 integrator, JPL Horizons ephemeris.">
+<meta property="og:image"       content="/assets/asteroid-poster.png">
+<meta property="og:url"         content="https://neo-radar.azpen.dev<%= typeof req !== 'undefined' ? req.originalUrl : '' %>">
+
+<!-- Twitter Card -->
+<meta name="twitter:card"        content="summary_large_image">
+<meta name="twitter:title"       content="<%= typeof title !== 'undefined' ? title : 'NEO Radar' %>">
+<meta name="twitter:description" content="Real N-body orbital mechanics for 47 Near-Earth Objects. Built with JPL Horizons + NASA NeoWs.">
+<meta name="twitter:image"       content="/assets/asteroid-poster.png">
+
+<link rel="icon"       href="/assets/logo.svg" type="image/svg+xml">
+<link rel="canonical"  href="https://neo-radar.azpen.dev<%= typeof req !== 'undefined' ? req.path : '' %>">
 <link rel="stylesheet" href="/css/fonts.css">
 <link rel="stylesheet" href="/css/styles.css">
 </head>

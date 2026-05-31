@@ -1,29 +1,41 @@
 {
   "name": "neo-radar",
   "version": "1.0.0",
-  "description": "Real orbital-mechanics engine for tracking Near-Earth Objects",
+  "description": "Real N-body orbital-mechanics engine for tracking Near-Earth Objects",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js",
-    "dev": "node --watch app.js"
+    "start":      "node --use-system-ca app.js",
+    "dev":        "node --use-system-ca --watch app.js",
+    "test":       "node --use-system-ca --test tests/",
+    "benchmark":  "node --use-system-ca scripts/benchmark.js",
+    "bench:fast": "node --use-system-ca scripts/benchmark.js --fast",
+    "bench:jpl":  "node --use-system-ca scripts/benchmark.js --fast --jpl"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.9.1"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "ejs": "^3.1.10",
-    "express": "^4.22.2",
-    "helmet": "^8.2.0",
-    "node-fetch": "^3.3.2"
+    "dotenv":         "^16.4.5",
+    "ejs":            "^3.1.10",
+    "express":        "^4.22.2",
+    "helmet":         "^8.2.0",
+    "node-fetch":     "^3.3.2"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/azpeeen/NEO-Radar.git"
+    "url":  "git+https://github.com/azpeeen/NEO-Radar.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "orbital-mechanics", "asteroid", "NEO", "n-body", "kepler", "JPL", "NASA", "astronomy"
+  ],
+  "author": "Davi Martins",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/azpeeen/NEO-Radar/issues"
   },
-  "homepage": "https://github.com/azpeeen/NEO-Radar#readme"
+  "homepage": "https://neo-radar.azpen.dev"
 }
