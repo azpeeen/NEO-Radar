@@ -217,6 +217,64 @@
     .sim-clock .val { font-size: 10px; }
   }
 
+  /* ── MPC Dossier Panel ──────────────────────────────────────── */
+  .mpc-dossier {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 380px; max-width: 100%;
+    background: rgba(5,5,10,0.97);
+    border-left: 1px solid var(--line);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    overflow-y: auto; overflow-x: hidden;
+    transform: translateX(100%);
+    transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+    z-index: 10; display: flex; flex-direction: column;
+  }
+  .mpc-dossier.open { transform: translateX(0); }
+  .mpc-dossier::-webkit-scrollbar { width: 4px; }
+  .mpc-dossier::-webkit-scrollbar-track { background: transparent; }
+  .mpc-dossier::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 2px; }
+  .mpc-dos-header {
+    padding: 18px 18px 14px; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 1; background: rgba(5,5,10,0.97);
+  }
+  .mpc-dos-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .mpc-dos-name { font-family: var(--font-display); font-weight: 500; font-size: 17px; letter-spacing: -0.01em; line-height: 1.2; }
+  .mpc-dos-desig { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase; margin-top: 3px; }
+  .dos-badges { display: flex; gap: 5px; align-items: flex-start; flex-shrink: 0; flex-wrap: wrap; }
+  .dos-type-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+  .dos-type-Aten   { background: rgba(100,120,255,0.12); color: #6fb4ff; border: 1px solid rgba(111,180,255,0.2); }
+  .dos-type-Apollo { background: rgba(255,180,50,0.12);  color: #ffb832; border: 1px solid rgba(255,180,50,0.2); }
+  .dos-type-Amor   { background: rgba(47,208,122,0.12);  color: #2fd07a; border: 1px solid rgba(47,208,122,0.2); }
+  .dos-type-Atira  { background: rgba(220,80,80,0.12);   color: #ff8080; border: 1px solid rgba(200,80,80,0.2); }
+  .dos-type-MBA    { background: rgba(150,150,150,0.08); color: var(--ink-3); border: 1px solid var(--line); }
+  @keyframes pha-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,50,50,0.4);} 50%{box-shadow:0 0 0 5px rgba(255,50,50,0);} }
+  .dos-pha-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: rgba(255,50,50,0.14); color: #ff6060; border: 1px solid rgba(255,50,50,0.3); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; animation: pha-pulse 1.8s ease-in-out infinite; }
+  .dos-close { background: transparent; border: 1px solid var(--line); border-radius: 5px; color: var(--ink-3); width: 26px; height: 26px; display: grid; place-items: center; cursor: pointer; font-size: 12px; transition: all 160ms; flex-shrink: 0; }
+  .dos-close:hover { color: var(--ink); border-color: var(--line-strong); }
+  .mpc-dos-section { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .mpc-dos-sh { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 11px; }
+  .dos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; margin-bottom: 8px; }
+  .dos-cell { padding: 8px 10px; background: rgba(8,10,18,0.7); }
+  .dos-cell .k { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 3px; }
+  .dos-cell .v { font-family: var(--font-mono); font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.3; }
+  .dos-cell .v small { color: var(--ink-3); font-size: 9px; margin-left: 2px; }
+  .dos-cell-full { grid-column: 1 / -1; }
+  .dos-ca-box { padding: 11px 13px; border-radius: 7px; background: rgba(26,108,246,0.06); border: 1px solid rgba(26,108,246,0.2); margin-bottom: 8px; }
+  .dos-ca-lbl { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--cobalt-soft); margin-bottom: 5px; }
+  .dos-ca-fig { font-family: var(--font-display); font-size: 24px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .dos-ca-fig small { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); font-weight: 400; margin-left: 3px; }
+  .dos-ca-sub { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); margin-top: 4px; }
+  .dos-spinner-wrap { display: flex; align-items: center; gap: 9px; padding: 10px 0; font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.06em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dos-spinner { width: 13px; height: 13px; border: 2px solid rgba(26,108,246,0.25); border-top-color: #1a6cf6; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+  .dos-impact-box { padding: 9px 11px; border-radius: 6px; background: rgba(255,107,43,0.05); border: 1px solid rgba(255,107,43,0.15); margin-top: 6px; }
+  .dos-impact-lbl { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.13em; text-transform: uppercase; color: rgba(255,107,43,0.65); margin-bottom: 3px; }
+  .dos-jpl-btn { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 9px 12px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255,255,255,0.02); color: var(--ink-2); text-decoration: none; font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.05em; transition: all 160ms; cursor: pointer; }
+  .dos-jpl-btn:hover { color: var(--ink); border-color: var(--line-strong); background: rgba(255,255,255,0.04); }
+  @keyframes hud-blink { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+  .hud-promoted { animation: hud-blink 1.6s ease-in-out infinite; color: #1a6cf6; }
+  @media (max-width: 767px) { .mpc-dossier { width: 100%; } }
+
   /* ── Floating Action Button (mobile LIVE toggle) ────────────── */
   .fab-live {
     position: fixed;
@@ -379,9 +437,9 @@
         </ul>
       </div>
     </div>
-    <button class="btn-live" id="btn-live" title="Snap to real current time">
+    <button class="btn-live" id="btn-live" title="Toggle live / simulate time">
       <span class="live-dot" id="live-dot"></span>
-      <span id="live-label">→ LIVE</span>
+      <span id="live-label">SIMULATE</span>
     </button>
     <div class="right">
       <span class="live-dot">Live Data</span>
@@ -397,23 +455,130 @@
       <div style="margin-top:4px;">SCALE · <span class="v" id="scale-val">1 AU = 80 px</span></div>
     </div>
     <div class="canvas-overlay corner-overlay" style="top:0;right:0;text-align:right;">
-      <div>TRACKING · <span class="v"><%= neos.length %> objects</span></div>
-      <div style="margin-top:4px;">PERTURBERS · <span class="v" id="pert-val">Sun · Jupiter · Saturn</span></div>
+      <div id="hud-tracking-line">TRACKING · <span class="v" id="hud-count"><%= neos.length %> HIGH-FIDELITY</span></div>
+      <div id="hud-catalog-line" style="margin-top:2px;display:none;">CATALOG · <span class="v" id="hud-catalog-count">—</span></div>
+      <div style="margin-top:4px;">PERTURBERS · <span class="v" id="pert-val">Sun · Jupiter · Saturn · Uranus · Neptune</span></div>
+      <div id="hud-promoted-line" style="margin-top:4px;display:none;" class="hud-promoted">PROMOTED · <span id="hud-promoted-name">—</span> · N-BODY ACTIVE</div>
     </div>
     <div class="legend">
       <div class="item"><span class="dot" style="background:#4f8fff"></span>Earth</div>
       <div class="item"><span class="dot" style="background:#c79b6e"></span>Jupiter</div>
-      <div class="item"><span class="dot" style="background:#d4c79c"></span>Saturn</div>
+      <div class="item"><span class="dot" style="background:#c9b079"></span>Saturn</div>
+      <div class="item"><span class="dot" style="background:#7de8e8"></span>Uranus</div>
+      <div class="item"><span class="dot" style="background:#4b6eff"></span>Neptune</div>
       <div class="item"><span class="dot" style="background:#ff6b2b;box-shadow:0 0 6px #ff6b2b"></span>Hazardous</div>
       <div class="item"><span class="dot" style="background:#1a6cf6"></span>Tracked NEO</div>
     </div>
-    <div class="scale-bar"><span>0</span><span class="bar"></span><span>1 AU</span></div>
+    <div class="scale-bar" id="dyn-scale-bar" style="position:absolute;bottom:60px;left:16px;z-index:4;padding:8px 10px;background:rgba(8,10,18,0.6);border:1px solid var(--line);border-radius:6px;font-family:var(--font-mono);font-size:10px;color:var(--ink-3);backdrop-filter:blur(8px);display:flex;align-items:center;gap:8px;">
+      <div id="dyn-scale-line" style="height:2px;background:var(--ink-2);width:80px;flex-shrink:0;"></div>
+      <span id="dyn-scale-label">1 AU</span>
+    </div>
     <div class="obj-tooltip" id="tooltip">
       <div class="name" id="tt-name">—</div>
       <div class="desig" id="tt-desig">—</div>
       <div class="kv"><span class="k">Distance</span><span class="v" id="tt-d">—</span></div>
       <div class="kv"><span class="k">Velocity</span><span class="v" id="tt-v">—</span></div>
     </div>
+
+    <!-- MPC Dossier Panel — slides in from right edge of canvas -->
+    <div id="mpc-dossier" class="mpc-dossier" role="dialog" aria-label="Asteroid Dossier">
+      <div class="mpc-dos-header">
+        <div class="mpc-dos-top">
+          <div style="min-width:0;flex:1;">
+            <div class="mpc-dos-name" id="dos-name">—</div>
+            <div class="mpc-dos-desig" id="dos-desig">—</div>
+          </div>
+          <div class="dos-badges">
+            <span class="dos-type-badge" id="dos-type">—</span>
+            <span class="dos-pha-badge" id="dos-pha" style="display:none;">PHA</span>
+            <button class="dos-close" id="dos-close" title="Close dossier">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mpc-dos-section">
+        <div class="mpc-dos-sh">Orbital Elements · MPC Catalog</div>
+        <div class="dos-grid">
+          <div class="dos-cell"><div class="k">Semi-major a</div><div class="v" id="dos-a">—</div></div>
+          <div class="dos-cell"><div class="k">Eccentricity e</div><div class="v" id="dos-e">—</div></div>
+          <div class="dos-cell"><div class="k">Inclination i</div><div class="v" id="dos-i">—</div></div>
+          <div class="dos-cell"><div class="k">Ω · ω</div><div class="v" id="dos-angles">—</div></div>
+          <div class="dos-cell"><div class="k">Mean anomaly M</div><div class="v" id="dos-M">—</div></div>
+          <div class="dos-cell"><div class="k">Abs magnitude H</div><div class="v" id="dos-H">—</div></div>
+        </div>
+      </div>
+
+      <div class="mpc-dos-section">
+        <div class="mpc-dos-sh">Derived Geometry</div>
+        <div class="dos-grid">
+          <div class="dos-cell"><div class="k">Perihelion q</div><div class="v" id="dos-q">—</div></div>
+          <div class="dos-cell"><div class="k">Aphelion Q</div><div class="v" id="dos-Q">—</div></div>
+          <div class="dos-cell"><div class="k">Period P</div><div class="v" id="dos-P">—</div></div>
+          <div class="dos-cell"><div class="k">Mean motion n</div><div class="v" id="dos-n">—</div></div>
+          <div class="dos-cell"><div class="k">v at perihelion</div><div class="v" id="dos-vperi">—</div></div>
+          <div class="dos-cell"><div class="k">MOID · Earth</div><div class="v" id="dos-moid">—</div></div>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--ink-3);">
+          Tisserand T<sub>J</sub> = <span id="dos-tj">—</span>
+          <span id="dos-tj-note" style="color:var(--ink-4);margin-left:6px;font-size:9px;"></span>
+        </div>
+      </div>
+
+      <div class="mpc-dos-section">
+        <div class="mpc-dos-sh">Physical Estimates (from H magnitude)</div>
+        <div class="dos-grid">
+          <div class="dos-cell dos-cell-full"><div class="k">Diameter estimate (albedo range)</div><div class="v" id="dos-diam">—</div></div>
+          <div class="dos-cell"><div class="k">Mass estimate</div><div class="v" id="dos-mass">—</div></div>
+          <div class="dos-cell"><div class="k">Escape velocity</div><div class="v" id="dos-vesc">—</div></div>
+        </div>
+        <div class="dos-impact-box">
+          <div class="dos-impact-lbl">Impact Energy Estimate · v at perihelion</div>
+          <div style="font-family:var(--font-mono);font-size:12px;color:var(--ink);" id="dos-impact">—</div>
+          <div style="font-family:var(--font-mono);font-size:9.5px;color:var(--ink-3);margin-top:3px;" id="dos-impact-cmp">—</div>
+        </div>
+      </div>
+
+      <div class="mpc-dos-section">
+        <div class="mpc-dos-sh">Close Approach · N-body RK4 + Monte Carlo</div>
+        <div id="dos-ca-idle" style="font-family:var(--font-mono);font-size:10px;color:var(--ink-4);padding:2px 0 6px;">
+          Loading trajectory…
+        </div>
+        <div id="dos-ca-spinner" class="dos-spinner-wrap" style="display:none;">
+          <div class="dos-spinner"></div>
+          <span>Computing N-body trajectory…</span>
+        </div>
+        <div id="dos-ca-error" style="display:none;font-family:var(--font-mono);font-size:10px;color:var(--amber);padding:6px 0;"></div>
+        <div id="dos-ca-content" style="display:none;">
+          <div class="dos-ca-box">
+            <div class="dos-ca-lbl">Min. Distance in −2 / +5 yr Window</div>
+            <div class="dos-ca-fig" id="dos-ca-dist">—</div>
+            <div class="dos-ca-sub" id="dos-ca-sub">—</div>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--ink-3);">
+            Monte Carlo 3σ spread: <span id="dos-sigma" style="color:var(--ink);">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mpc-dos-section">
+        <div class="mpc-dos-sh">Discovery &amp; Physical Data · JPL SBDB</div>
+        <div class="dos-grid">
+          <div class="dos-cell"><div class="k">Discovery date</div><div class="v" id="dos-disc-date">—</div></div>
+          <div class="dos-cell"><div class="k">Discoverer</div><div class="v" id="dos-disc-who">—</div></div>
+          <div class="dos-cell"><div class="k">Albedo pᵥ</div><div class="v" id="dos-albedo">—</div></div>
+          <div class="dos-cell"><div class="k">Rotation</div><div class="v" id="dos-rot">—</div></div>
+          <div class="dos-cell"><div class="k">Spectral class</div><div class="v" id="dos-spec">—</div></div>
+          <div class="dos-cell"><div class="k">Obs arc</div><div class="v" id="dos-arc">—</div></div>
+        </div>
+      </div>
+
+      <div class="mpc-dos-section" style="border-bottom:none;">
+        <a id="dos-jpl-btn" class="dos-jpl-btn" href="#" target="_blank" rel="noopener noreferrer">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open in JPL Small-Body Database
+        </a>
+      </div>
+    </div><!-- /#mpc-dossier -->
   </div>
 
   <aside class="sidebar" id="radar-sidebar" data-screen-label="02 Radar — Sidebar">
@@ -491,7 +656,20 @@
       <div class="control"><div class="label"><span class="t">Saturn Perturbation</span><span class="d">Δv contribution &lt; 0.4 %</span></div><div class="toggle on" id="tg-sat"></div></div>
       <div class="control"><div class="label"><span class="t">Uncertainty Cone</span><span class="d">Widens near gravitational keyholes</span></div><div class="toggle on" id="tg-unc"></div></div>
       <div class="control"><div class="label"><span class="t">Orbit Trails</span><span class="d">Persistent path history</span></div><div class="toggle on" id="tg-trail"></div></div>
-      <div class="control"><div class="label"><span class="t">Inner Planets</span><span class="d">Mercury · Venus · Mars</span></div><div class="toggle" id="tg-inner"></div></div>
+      <div class="control"><div class="label"><span class="t">All Planets</span><span class="d">Show/hide planet layer</span></div><div class="toggle on" id="tg-planets"></div></div>
+      <div class="control"><div class="label"><span class="t">All Orbits</span><span class="d">Show/hide orbital paths</span></div><div class="toggle on" id="tg-orbits"></div></div>
+      <div class="control"><div class="label"><span class="t">All NEAs (MPC)</span><span class="d">~41k background asteroids</span></div><div class="toggle on" id="tg-mpc"></div></div>
+      <div style="padding:10px 0 4px;border-top:1px solid var(--line);font-family:var(--font-mono);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);">Individual Planets</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-bottom:8px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-mercury" style="accent-color:var(--cobalt);"> Mercury</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-venus"   style="accent-color:var(--cobalt);"> Venus</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-earth"   style="accent-color:var(--cobalt);" checked> Earth</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-mars"    style="accent-color:var(--cobalt);"> Mars</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-jupiter" style="accent-color:var(--cobalt);" checked> Jupiter</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-saturn"  style="accent-color:var(--cobalt);" checked> Saturn</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-uranus"  style="accent-color:var(--cobalt);" checked> Uranus</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-neptune" style="accent-color:var(--cobalt);" checked> Neptune</label>
+      </div>
       <div class="sheet-tz">
         <span class="sheet-label">Timezone</span>
         <div class="tz-dropdown" id="tz-dropdown-mobile">
@@ -514,6 +692,11 @@
       </div>
     </div>
 
+    <div class="sb-section">
+      <div class="sb-h"><span>Upcoming Alignments</span><span style="font-size:9px;">≤ 15° sep</span></div>
+      <div id="alignments-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+
     <div class="sb-section" style="border-bottom:none;">
       <div class="sb-h"><span>Integrator</span><span>Adaptive</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -526,7 +709,7 @@
   <!-- Mobile FAB — replaces topbar LIVE button on small screens -->
   <button id="fab-live" class="fab-live" aria-label="Toggle live mode">
     <span class="fab-dot"></span>
-    <span class="fab-label">LIVE</span>
+    <span class="fab-label">SIMULATE</span>
   </button>
 </div>
 
@@ -554,13 +737,18 @@ const NEOS = <%- JSON.stringify(neos.map(n => ({
 const _FOCUS_ID   = <%- JSON.stringify(focusId) %>;
 const _FOCUS_DATE = <%- JSON.stringify(focusDate) %>;
 const PLANETS = [
-  { name:'Mercury', a:0.387, e:0.21,  phase:1.5, color:'#a8a8a8', r:1.6, inner:true  },
-  { name:'Venus',   a:0.723, e:0.007, phase:4.2, color:'#e8b878', r:2.2, inner:true  },
-  { name:'Earth',   a:1.000, e:0.017, phase:2.6, color:'#4f8fff', r:2.6, inner:false, glow:true  },
-  { name:'Mars',    a:1.524, e:0.093, phase:0.8, color:'#ff8a55', r:2.0, inner:true  },
-  { name:'Jupiter', a:5.204, e:0.048, phase:5.7, color:'#c79b6e', r:6.0, inner:false, glow:true  },
-  { name:'Saturn',  a:9.583, e:0.054, phase:1.3, color:'#d4c79c', r:5.4, inner:false, ring:true  },
+  { name:'Mercury', a:0.387,  e:0.206, phase:1.50, color:'#b5b5b5', r:3, key:'mercury', inner:true  },
+  { name:'Venus',   a:0.723,  e:0.007, phase:4.20, color:'#e8cda0', r:3, key:'venus',   inner:true  },
+  { name:'Earth',   a:1.000,  e:0.017, phase:2.60, color:'#4f8fff', r:4, key:'earth',   inner:false, glow:true },
+  { name:'Mars',    a:1.524,  e:0.093, phase:0.80, color:'#e07050', r:3, key:'mars',    inner:true  },
+  { name:'Jupiter', a:5.204,  e:0.048, phase:5.70, color:'#c79b6e', r:7, key:'jupiter', inner:false, glow:true },
+  { name:'Saturn',  a:9.583,  e:0.054, phase:1.30, color:'#c9b079', r:6, key:'saturn',  inner:false, ring:true },
+  { name:'Uranus',  a:19.218, e:0.047, phase:4.45, color:'#7de8e8', r:5, key:'uranus',  inner:false },
+  { name:'Neptune', a:30.070, e:0.009, phase:5.48, color:'#4b6eff', r:5, key:'neptune', inner:false },
 ];
+
+// Alignment data from server
+const ALIGNMENTS = <%- JSON.stringify(alignments || []) %>;
 // Apply deep-link date if provided (?date=2029-04-13)
 let _initSimTime = 0;
 if (_FOCUS_DATE) {
@@ -571,10 +759,20 @@ if (_FOCUS_DATE) {
 
 const state = {
   selectedId: (_FOCUS_ID && NEOS.find(n => n.id === _FOCUS_ID)) ? _FOCUS_ID : (NEOS[0] && NEOS[0].id),
-  hoverId: null, filter: 'all', search: '', playing: true, speed: 1.0,
-  daysPerSec: 12, simTime: _initSimTime,
+  hoverId: null, hoverPlanet: null,
+  filter: 'all', search: '',
+  // playing=false → live mode (JD pinned to Date.now() every frame)
+  // playing=true  → simulate mode (dt accumulates)
+  // Deep-link dates start in simulate so the specific date is shown.
+  playing: !!_FOCUS_DATE, speed: 1.0,
+  daysPerSec: 12,
+  simTime: _FOCUS_DATE
+    ? _initSimTime
+    : (Date.now() - (Date.UTC(2000, 0, 1, 12, 0, 0) + 9643 * 86400000)) / 86400000,
   jupiter: true, saturn: true, uncertainty: true, trails: true, inner: false,
   pxPerAU: 80, zoom: 1.0, panX: 0, panY: 0,
+  showPlanets: true, showOrbits: true, showMPC: true,
+  planetToggles: { mercury:false, venus:false, earth:true, mars:false, jupiter:true, saturn:true, uranus:true, neptune:true },
 };
 
 function solveKepler(M, e) {
@@ -589,6 +787,507 @@ function orbitPos(o, t) {
   return { x:x*Math.cos(ang)-y*Math.sin(ang), y:x*Math.sin(ang)+y*Math.cos(ang) };
 }
 
+// ─── MPC asteroid layer (Layer 2 — Keplerian + Laplace-Lagrange secular) ─────
+// Sim epoch: 2026-05-27 12:00 UTC = J2000 + 9643 days → JD 2461188.0
+const _SIM_EPOCH_JD = 2451545.0 + 9643;
+const _J2000_OFFSET = 9643; // _SIM_EPOCH_JD - J2000_JD
+
+let _mpcAsteroids = [];
+let _mpcLoaded    = false;
+
+// ─── Browser-side Laplace-Lagrange secular theory ────────────────────────────
+// Mirror of src/physics/secular.js — runs once at load time per asteroid.
+
+function _secLaplace(alpha, n) {
+  // b_{3/2}^{(1)}(alpha) via composite Simpson's rule (n intervals)
+  var h = Math.PI / n, a2 = alpha * alpha, sum = 0;
+  for (var k = 0; k <= n; k++) {
+    var t = k * h, ct = Math.cos(t);
+    var denom = Math.pow(1 - 2 * alpha * ct + a2, 1.5);
+    var f = ct / denom; // cos(1·θ) = cos(θ)
+    var w = (k === 0 || k === n) ? 1 : (k % 2 === 0 ? 2 : 4);
+    sum += w * f;
+  }
+  return (2 / Math.PI) * (h / 3) * sum;
+}
+
+function computeSecularRates(ast) {
+  var a = ast.a;
+  if (!a || !isFinite(a) || a <= 0) return { dperi_dt: 0, dnode_dt: 0 };
+  var n_ast = (2 * Math.PI) / (365.25 * Math.pow(a, 1.5)); // rad/day
+  var planets = [{ a: 5.204267, m: 9.55e-4 }, { a: 9.582017, m: 2.86e-4 }];
+  var rate = 0;
+  for (var k = 0; k < planets.length; k++) {
+    var p = planets[k];
+    var alpha = a < p.a ? a / p.a : p.a / a;
+    if (alpha >= 1) alpha = 0.9999;
+    rate += (3 / 4) * n_ast * p.m * Math.pow(alpha, 3) * _secLaplace(alpha, 32);
+  }
+  return { dperi_dt: rate, dnode_dt: -rate };
+}
+
+// ─── Spatial hash for O(1) hit detection on 41k asteroids ────────────────────
+const _GRID = 40; // px per cell
+var _mpcVisible = []; // [{ast, sx, sy}, ...] rebuilt each frame
+var _mpcGrid = new Map();
+
+function _buildGrid() {
+  _mpcGrid = new Map();
+  for (var gi = 0; gi < _mpcVisible.length; gi++) {
+    var e = _mpcVisible[gi];
+    var gx = (e.sx / _GRID) | 0;
+    var gy = (e.sy / _GRID) | 0;
+    var key = gx * 100000 + gy;
+    var bucket = _mpcGrid.get(key);
+    if (!bucket) { bucket = []; _mpcGrid.set(key, bucket); }
+    bucket.push(e);
+  }
+}
+
+function _mpcHit(mx, my) {
+  if (!_mpcGrid.size) return null;
+  var gx = (mx / _GRID) | 0;
+  var gy = (my / _GRID) | 0;
+  var best = null, bestD2 = 14 * 14; // 14px hit radius
+  for (var dx = -1; dx <= 1; dx++) {
+    for (var dy = -1; dy <= 1; dy++) {
+      var bucket = _mpcGrid.get((gx + dx) * 100000 + (gy + dy));
+      if (!bucket) continue;
+      for (var bi = 0; bi < bucket.length; bi++) {
+        var be = bucket[bi];
+        var d2 = (be.sx - mx) * (be.sx - mx) + (be.sy - my) * (be.sy - my);
+        if (d2 < bestD2) { bestD2 = d2; best = be; }
+      }
+    }
+  }
+  return best; // { ast, sx, sy } or null
+}
+
+// ─── Promoted object state (Layer 3 — N-body on click) ───────────────────────
+var _promotedAst     = null;  // the clicked MPC asteroid
+var _promotedResult  = null;  // { trajectory, closeApproach, uncertainty }
+var _promotedLoading = false;
+var _hoverMPC        = null;  // currently hovered MPC entry { ast, sx, sy }
+
+async function loadMPCAsteroids() {
+  try {
+    // Load ALL catalog asteroids (chunked: two requests of 25k)
+    const [r1, r2] = await Promise.all([
+      fetch('/api/asteroids/bulk?limit=25000&offset=0').then(r => r.json()),
+      fetch('/api/asteroids/bulk?limit=25000&offset=25000').then(r => r.json()),
+    ]);
+    const combined = (r1.asteroids || []).concat(r2.asteroids || []);
+    _mpcAsteroids = combined;
+
+    // Pre-compute secular rates once — O(1) per frame from here on
+    for (var k = 0; k < _mpcAsteroids.length; k++) {
+      _mpcAsteroids[k]._sec = computeSecularRates(_mpcAsteroids[k]);
+    }
+    _mpcLoaded = true;
+
+    // Update HUD catalog count
+    var el = document.getElementById('hud-catalog-count');
+    var el2 = document.getElementById('hud-catalog-line');
+    if (el) el.textContent = _mpcAsteroids.length.toLocaleString();
+    if (el2) el2.style.display = '';
+  } catch (e) {
+    console.warn('[MPC] Failed to load asteroids:', e.message);
+  }
+}
+
+function getMPCPosition(ast, currentJD) {
+  var dt = currentJD - ast.epoch_jd;
+  var n  = 0.9856076686 / Math.pow(ast.a, 1.5); // deg/day
+  var M  = (ast.M + n * dt) % 360;
+  if (M < 0) M += 360;
+
+  var Mrad = M * Math.PI / 180;
+  var E    = solveKepler(Mrad, ast.e);
+
+  var x_orb = ast.a * (Math.cos(E) - ast.e);
+  var y_orb = ast.a * Math.sqrt(1 - ast.e * ast.e) * Math.sin(E);
+
+  // Apply secular perturbation (Laplace-Lagrange) — O(1), pre-computed rates
+  var w_eff = ast.w, node_eff = ast.node;
+  if (ast._sec) {
+    var R2D = 180 / Math.PI;
+    w_eff    += ast._sec.dperi_dt * R2D * dt;
+    node_eff += ast._sec.dnode_dt * R2D * dt;
+  }
+
+  var w    = w_eff    * Math.PI / 180;
+  var node = node_eff * Math.PI / 180;
+  var i    = ast.i    * Math.PI / 180;
+
+  var cosN = Math.cos(node), sinN = Math.sin(node);
+  var cosW = Math.cos(w),    sinW = Math.sin(w);
+  var cosI = Math.cos(i);
+
+  var x = (cosN * cosW - sinN * sinW * cosI) * x_orb
+         + (-cosN * sinW - sinN * cosW * cosI) * y_orb;
+  var y = (sinN * cosW + cosN * sinW * cosI) * x_orb
+         + (-sinN * sinW + cosN * cosW * cosI) * y_orb;
+
+  return { x, y };
+}
+
+function drawMPCAsteroids() {
+  if (!state.showMPC || !_mpcLoaded || _mpcAsteroids.length === 0) return;
+  const currentJD = _SIM_EPOCH_JD + state.simTime;
+
+  // Reset per-frame visibility list (used for spatial hash + hit test)
+  _mpcVisible = [];
+
+  const atenPts = [], apolloPts = [], amorPts = [];
+
+  for (var mi = 0; mi < _mpcAsteroids.length; mi++) {
+    const ast = _mpcAsteroids[mi];
+    const pos = getMPCPosition(ast, currentJD);
+    const s   = ws(pos.x, pos.y);
+
+    // Viewport culling
+    if (s.x < -4 || s.x > W + 4 || s.y < -4 || s.y > H + 4) continue;
+
+    _mpcVisible.push({ ast, sx: s.x, sy: s.y });
+
+    // Promoted asteroid gets special highlight in drawPromotedObject — still draw dim dot
+    const isPromoted = _promotedAst && ast === _promotedAst;
+    const size = isPromoted ? 0 : Math.max(0.7, Math.min(2.0, (25 - ast.H) / 8));
+    if (isPromoted) continue; // skip, drawn separately
+
+    const q = ast.a * (1 - ast.e);
+    if      (ast.a < 1.0)    atenPts.push({ x: s.x, y: s.y, r: size });
+    else if (q < 1.017)      apolloPts.push({ x: s.x, y: s.y, r: size });
+    else                     amorPts.push({ x: s.x, y: s.y, r: size });
+  }
+
+  // Batch draw by type — fillRect is faster than arc for 41k tiny dots
+  ctx.save();
+  const _batch = (pts, color) => {
+    if (!pts.length) return;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (var pi = 0; pi < pts.length; pi++) {
+      const p = pts[pi];
+      ctx.rect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
+    }
+    ctx.fill();
+  };
+  _batch(atenPts,   'rgba(255,100,100,0.50)');
+  _batch(apolloPts, 'rgba(255,180,50,0.50)');
+  _batch(amorPts,   'rgba(100,160,255,0.40)');
+
+  // Hover highlight
+  if (_hoverMPC) {
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(_hoverMPC.sx, _hoverMPC.sy, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // Rebuild spatial hash from this frame's visible set
+  _buildGrid();
+}
+
+// Start loading MPC data (non-blocking)
+if (state.showMPC) loadMPCAsteroids();
+
+// ─── Promoted object drawing (Layer 3 — active only when panel is open) ──────
+
+function drawPromotedObject() {
+  if (!_promotedAst) return;
+
+  const currentJD = _SIM_EPOCH_JD + state.simTime;
+  const pos = getMPCPosition(_promotedAst, currentJD);
+  const s   = ws(pos.x, pos.y);
+
+  ctx.save();
+
+  // ── Trajectory polyline ───────────────────────────────────────────────────
+  if (_promotedResult && _promotedResult.trajectory && _promotedResult.trajectory.length > 1) {
+    const traj = _promotedResult.trajectory;
+    ctx.beginPath();
+    let first = true;
+    for (var ti = 0; ti < traj.length; ti += 2) {  // every 2nd point = 2-day cadence
+      const pt = traj[ti];
+      const sp = ws(pt[0], pt[1]);
+      if (sp.x < -20 || sp.x > W + 20 || sp.y < -20 || sp.y > H + 20) { first = true; continue; }
+      if (first) { ctx.moveTo(sp.x, sp.y); first = false; } else ctx.lineTo(sp.x, sp.y);
+    }
+    ctx.strokeStyle = '#1a6cf6';
+    ctx.lineWidth   = 1.2;
+    ctx.globalAlpha = 0.75;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // ── Monte Carlo uncertainty positions at close approach ─────────────────
+    const unc = _promotedResult.uncertainty;
+    if (unc && unc.caPositions && unc.caPositions.length > 4) {
+      ctx.beginPath();
+      for (var ui = 0; ui < unc.caPositions.length; ui++) {
+        const p = unc.caPositions[ui];
+        const sp = ws(p[0], p[1]);
+        const r = 2.5;
+        ctx.rect(sp.x - r, sp.y - r, r * 2, r * 2);
+      }
+      ctx.fillStyle = 'rgba(255,107,43,0.22)';
+      ctx.fill();
+    }
+  }
+
+  // ── Dashed line to Earth with real-time distance label ───────────────────
+  const earthPos = orbitPos(PLANETS[2], state.simTime);
+  const se = ws(earthPos.x, earthPos.y);
+  const dist2D = Math.hypot(pos.x - earthPos.x, pos.y - earthPos.y);
+  const distLD = (dist2D / 0.00257).toFixed(2);
+
+  ctx.setLineDash([3, 5]);
+  ctx.beginPath();
+  ctx.moveTo(s.x, s.y);
+  ctx.lineTo(se.x, se.y);
+  ctx.strokeStyle = 'rgba(26,108,246,0.45)';
+  ctx.lineWidth   = 0.9;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const midX = (s.x + se.x) / 2, midY = (s.y + se.y) / 2;
+  ctx.fillStyle = 'rgba(26,108,246,0.9)';
+  ctx.font = '9px JetBrains Mono';
+  ctx.fillText(distLD + ' LD', midX + 4, midY - 3);
+
+  // ── Pulsing ring + bright dot ─────────────────────────────────────────────
+  const pulse = 5 + Math.sin(state.simTime * 3) * 2;
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, pulse + 7, 0, Math.PI * 2);
+  ctx.strokeStyle = '#1a6cf6';
+  ctx.lineWidth   = 1.5;
+  ctx.globalAlpha = 0.4 + 0.2 * Math.sin(state.simTime * 3);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+  ctx.fillStyle = '#1a6cf6';
+  ctx.shadowColor = '#1a6cf6'; ctx.shadowBlur = 8;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+// ─── MPC Dossier panel — static rendering helpers ────────────────────────────
+
+function _fmt(v, digits, unit) {
+  if (v == null || !isFinite(v)) return '—';
+  return v.toFixed(digits) + (unit ? ' <small>' + unit + '</small>' : '');
+}
+function _fmtSci(v) {
+  if (v == null || !isFinite(v)) return '—';
+  const e = Math.floor(Math.log10(Math.abs(v)));
+  const m = (v / Math.pow(10, e)).toFixed(2);
+  return m + ' × 10<sup>' + e + '</sup>';
+}
+function _setText(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+function _renderDossierStatic(data) {
+  const ast = data.elements || {};
+  const d   = data.derived  || {};
+  const jpl = data.jpl      || {};
+
+  // Header
+  _setText('dos-name', data.name || data.designation || '—');
+  _setText('dos-desig', data.designation || '—');
+
+  const typeEl = document.getElementById('dos-type');
+  if (typeEl && d.type) {
+    typeEl.textContent = d.type;
+    typeEl.className = 'dos-type-badge dos-type-' + d.type;
+  }
+  const phaEl = document.getElementById('dos-pha');
+  if (phaEl) phaEl.style.display = d.isPHA ? '' : 'none';
+
+  // Orbital elements
+  _setText('dos-a',      ast.a  != null ? ast.a.toFixed(4)  + ' <small>AU</small>' : '—');
+  _setText('dos-e',      ast.e  != null ? ast.e.toFixed(6)  : '—');
+  _setText('dos-i',      ast.i  != null ? ast.i.toFixed(3)  + ' <small>°</small>'  : '—');
+  _setText('dos-angles', (ast.node != null ? ast.node.toFixed(2) : '—') + ' · ' + (ast.w != null ? ast.w.toFixed(2) : '—'));
+  _setText('dos-M',      ast.M  != null ? ast.M.toFixed(3)  + ' <small>°</small>'  : '—');
+  _setText('dos-H',      ast.H  != null ? ast.H.toFixed(1)  : '—');
+
+  // Derived geometry
+  _setText('dos-q',      d.q_AU    != null ? d.q_AU.toFixed(4)    + ' <small>AU</small>' : '—');
+  _setText('dos-Q',      d.Q_AU    != null ? d.Q_AU.toFixed(4)    + ' <small>AU</small>' : '—');
+  _setText('dos-P',      d.P_yr    != null ? d.P_yr.toFixed(3)    + ' <small>yr</small>' + (d.P_days != null ? ' (' + d.P_days.toFixed(0) + ' d)' : '') : '—');
+  _setText('dos-n',      d.n_deg   != null ? d.n_deg.toFixed(4)   + ' <small>°/d</small>' : '—');
+  _setText('dos-vperi',  d.v_peri_kms != null ? d.v_peri_kms.toFixed(2) + ' <small>km/s</small>' : '—');
+
+  const moidAU = d.MOID_AU;
+  let moidStr = '—';
+  if (moidAU != null && isFinite(moidAU)) {
+    const moidLD = (moidAU / 0.00257).toFixed(2);
+    const moidClass = moidAU <= 0.05 ? 'color:var(--amber)' : '';
+    moidStr = '<span style="' + moidClass + '">' + moidAU.toFixed(5) + ' <small>AU</small></span> · ' + moidLD + ' <small>LD</small>';
+  }
+  _setText('dos-moid', moidStr);
+
+  const tj = d.tisserand;
+  _setText('dos-tj', tj != null ? tj.toFixed(3) : '—');
+  _setText('dos-tj-note', tj != null ? (tj < 3 ? '← cometary origin?' : tj > 3.5 ? '← typical asteroid' : '← near boundary') : '');
+
+  // Physical estimates
+  let diamStr = '—';
+  if (d.diam_mid_km != null) {
+    diamStr = d.diam_mid_km.toFixed(3) + ' <small>km mid</small> '
+            + '(' + d.diam_dark_km.toFixed(3) + '–' + d.diam_bright_km.toFixed(3) + ' <small>km range</small>)';
+  }
+  _setText('dos-diam', diamStr);
+
+  _setText('dos-mass', d.mass_kg != null ? _fmtSci(d.mass_kg) + ' <small>kg</small>' : '—');
+  _setText('dos-vesc', d.v_escape_ms != null ? (d.v_escape_ms < 1 ? (d.v_escape_ms * 100).toFixed(1) + ' <small>cm/s</small>' : d.v_escape_ms.toFixed(2) + ' <small>m/s</small>') : '—');
+
+  // Impact energy
+  if (d.impact_Mt != null) {
+    let impStr, impCmp;
+    if (d.impact_Mt < 0.001) {
+      impStr = (d.impact_Mt * 1000).toFixed(3) + ' <small>kt TNT</small>';
+    } else if (d.impact_Mt < 1000) {
+      impStr = d.impact_Mt.toFixed(2) + ' <small>Mt TNT</small>';
+    } else {
+      impStr = (d.impact_Mt / 1000).toFixed(1) + ' <small>Gt TNT</small>';
+    }
+    const hiro = d.impact_vs_hiroshima;
+    const tung = d.impact_vs_tunguska;
+    if (hiro < 0.1) impCmp = '< 0.1× Hiroshima';
+    else if (hiro < 1) impCmp = (hiro * 1000).toFixed(0) + '× Hiroshima bomb';
+    else if (hiro < 100) impCmp = hiro.toFixed(1) + '× Hiroshima';
+    else if (tung < 2) impCmp = (d.impact_Mt / 12).toFixed(2) + '× Tunguska';
+    else impCmp = (d.impact_Mt / 12).toFixed(0) + '× Tunguska';
+    _setText('dos-impact', impStr);
+    _setText('dos-impact-cmp', impCmp);
+  } else {
+    _setText('dos-impact', '—'); _setText('dos-impact-cmp', '—');
+  }
+
+  // JPL discovery & physical data
+  const na = '<span style="color:var(--ink-4);">n/a</span>';
+  _setText('dos-disc-date', jpl.discovery_date || na);
+  _setText('dos-disc-who',  jpl.discoverer     || na);
+  _setText('dos-albedo',    jpl.albedo != null  ? jpl.albedo.toFixed(3) : na);
+  _setText('dos-rot',       jpl.rotation_h != null ? jpl.rotation_h.toFixed(2) + ' <small>h</small>' : na);
+  _setText('dos-spec',      jpl.spectral_class  || na);
+  _setText('dos-arc',       jpl.arc_years       || na);
+
+  const jplBtn = document.getElementById('dos-jpl-btn');
+  if (jplBtn && jpl.jpl_url) jplBtn.href = jpl.jpl_url;
+}
+
+function _renderDossierTrajectory(result) {
+  const ca = result.closeApproach || {};
+  const unc = result.uncertainty  || {};
+
+  // Show content, hide spinner and idle
+  document.getElementById('dos-ca-spinner').style.display = 'none';
+  document.getElementById('dos-ca-idle').style.display = 'none';
+  document.getElementById('dos-ca-error').style.display = 'none';
+  document.getElementById('dos-ca-content').style.display = '';
+
+  // Distance
+  let distStr = '—', subStr = '—';
+  if (ca.dist_AU != null) {
+    if (ca.dist_AU < 0.00257) {
+      distStr = (ca.dist_AU / 0.00257 * 384400).toFixed(0) + ' <small>km</small>';
+    } else {
+      distStr = (ca.dist_AU / 0.00257).toFixed(3) + ' <small>LD</small>';
+    }
+    subStr = (ca.date || '—') + ' · ' +
+             ca.dist_AU.toFixed(5) + ' AU · ' +
+             (ca.rel_vel_kms != null ? 'Δv ' + ca.rel_vel_kms.toFixed(2) + ' km/s' : '—');
+  }
+  _setText('dos-ca-dist', distStr);
+  _setText('dos-ca-sub',  subStr);
+
+  // Monte Carlo 3σ
+  const sig = unc.sigma3_AU;
+  _setText('dos-sigma', sig != null ? sig.toExponential(3) + ' AU (' + (sig/0.00257).toFixed(4) + ' LD)' : '—');
+
+  // Store result for canvas rendering
+  _promotedResult = result;
+}
+
+// ─── Open / close dossier ─────────────────────────────────────────────────────
+
+async function openMPCDossier(entry) {
+  const ast = entry.ast || entry;
+  _promotedAst    = ast;
+  _promotedResult = null;
+  _hoverMPC       = null;
+
+  const dossier = document.getElementById('mpc-dossier');
+  dossier.classList.add('open');
+
+  // Reset CA section to loading state
+  document.getElementById('dos-ca-idle').style.display = '';
+  document.getElementById('dos-ca-spinner').style.display = 'none';
+  document.getElementById('dos-ca-content').style.display = 'none';
+  document.getElementById('dos-ca-error').style.display = 'none';
+
+  // Update HUD
+  const hudLine = document.getElementById('hud-promoted-line');
+  const hudName = document.getElementById('hud-promoted-name');
+  if (hudLine) hudLine.style.display = '';
+  if (hudName) hudName.textContent = ast.name || ast.designation;
+
+  const desig = encodeURIComponent(ast.designation);
+
+  // ── Fetch static dossier data ──────────────────────────────────────────
+  try {
+    const resp = await fetch('/api/asteroid/' + desig);
+    if (resp.ok) {
+      const data = await resp.json();
+      _renderDossierStatic(data);
+    }
+  } catch (e) {
+    console.warn('[Dossier] static fetch error:', e.message);
+  }
+
+  // ── Fetch RK4 trajectory ───────────────────────────────────────────────
+  document.getElementById('dos-ca-idle').style.display = 'none';
+  document.getElementById('dos-ca-spinner').style.display = '';
+
+  try {
+    const currentJD = _SIM_EPOCH_JD + state.simTime;
+    const resp = await fetch('/api/asteroid/' + desig + '/trajectory?jd=' + currentJD.toFixed(4));
+    if (resp.ok) {
+      const result = await resp.json();
+      _renderDossierTrajectory(result);
+    } else {
+      const err = await resp.json().catch(() => ({ error: 'Server error' }));
+      document.getElementById('dos-ca-spinner').style.display = 'none';
+      _setText('dos-ca-error', 'Error: ' + (err.error || resp.statusText));
+      document.getElementById('dos-ca-error').style.display = '';
+    }
+  } catch (e) {
+    document.getElementById('dos-ca-spinner').style.display = 'none';
+    _setText('dos-ca-error', 'Network error: ' + e.message);
+    document.getElementById('dos-ca-error').style.display = '';
+  }
+}
+
+function closeMPCDossier() {
+  _promotedAst    = null;
+  _promotedResult = null;
+  document.getElementById('mpc-dossier').classList.remove('open');
+  const hudLine = document.getElementById('hud-promoted-line');
+  if (hudLine) hudLine.style.display = 'none';
+}
+
+document.getElementById('dos-close').addEventListener('click', closeMPCDossier);
+
 const cv=document.getElementById('radar-canvas'), ctx=cv.getContext('2d');
 let W=0, H=0, DPR=1;
 function resize() {
@@ -599,10 +1298,10 @@ function resize() {
 resize(); window.addEventListener('resize', resize);
 function ws(x,y){return{x:W/2+state.panX+x*state.pxPerAU*state.zoom, y:H/2+state.panY+y*state.pxPerAU*state.zoom};}
 
-function drawOrbit(o, color, alpha=0.18) {
+function drawOrbit(o, color, alpha=0.18, lw=0.8) {
   ctx.beginPath();
   for(let k=0;k<=200;k++){const Mt=(k/200)*2*Math.PI+(o.phase||0),E=solveKepler(Mt,o.e),x=o.a*(Math.cos(E)-o.e),y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E),ang=((o.w||0)+(o.om||0))*Math.PI/180,s=ws(x*Math.cos(ang)-y*Math.sin(ang),x*Math.sin(ang)+y*Math.cos(ang));k===0?ctx.moveTo(s.x,s.y):ctx.lineTo(s.x,s.y);}
-  ctx.strokeStyle=color; ctx.globalAlpha=alpha; ctx.lineWidth=0.8; ctx.stroke(); ctx.globalAlpha=1;
+  ctx.strokeStyle=color; ctx.globalAlpha=alpha; ctx.lineWidth=lw; ctx.stroke(); ctx.globalAlpha=1;
 }
 function drawSun() {
   const s=ws(0,0), g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,80);
@@ -610,12 +1309,68 @@ function drawSun() {
   ctx.fillStyle=g; ctx.fillRect(s.x-100,s.y-100,200,200);
   ctx.fillStyle='#ffd87a'; ctx.beginPath(); ctx.arc(s.x,s.y,5,0,Math.PI*2); ctx.fill();
 }
+function isActiveConjunctionPlanet(key, t) {
+  if (!ALIGNMENTS || !ALIGNMENTS.length) return false;
+  const nameToKey = { Earth:'earth', Jupiter:'jupiter', Saturn:'saturn', Uranus:'uranus', Neptune:'neptune' };
+  return ALIGNMENTS.some(al =>
+    Math.abs(t - al.simDay) <= 3 &&
+    al.bodies.some(name => (nameToKey[name] || name.toLowerCase()) === key)
+  );
+}
+
 function drawPlanet(p, t) {
   const pos=orbitPos(p,t), s=ws(pos.x,pos.y);
+  const conjActive = isActiveConjunctionPlanet(p.key, t);
+  if(conjActive){
+    const g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,p.r*5);
+    g.addColorStop(0,p.color+'44');g.addColorStop(1,p.color+'00');
+    ctx.fillStyle=g;ctx.fillRect(s.x-p.r*6,s.y-p.r*6,p.r*12,p.r*12);
+  }
   if(p.glow){const g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,30);g.addColorStop(0,p.color);g.addColorStop(0.3,p.color+'66');g.addColorStop(1,p.color+'00');ctx.fillStyle=g;ctx.fillRect(s.x-40,s.y-40,80,80);}
   ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(s.x,s.y,p.r,0,Math.PI*2); ctx.fill();
   if(p.ring){ctx.strokeStyle='rgba(212,199,156,0.5)';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(s.x,s.y,p.r*2.2,p.r*0.6,0.3,0,Math.PI*2);ctx.stroke();}
   ctx.fillStyle='rgba(200,210,230,0.65)'; ctx.font='10px JetBrains Mono'; ctx.fillText(p.name,s.x+p.r+6,s.y+3);
+}
+
+function drawActiveConjunctions(t) {
+  if (!ALIGNMENTS || !ALIGNMENTS.length) return;
+  const nameToKey = { Earth:'earth', Jupiter:'jupiter', Saturn:'saturn', Uranus:'uranus', Neptune:'neptune' };
+  const keyToPlanet = {};
+  for (const p of PLANETS) keyToPlanet[p.key] = p;
+
+  for (const al of ALIGNMENTS) {
+    if (Math.abs(t - al.simDay) > 3) continue;
+    const positions = al.bodies.map(name => {
+      const key = nameToKey[name] || name.toLowerCase();
+      const planet = keyToPlanet[key];
+      if (!planet) return null;
+      const pos = orbitPos(planet, t);
+      return { name, s: ws(pos.x, pos.y) };
+    }).filter(Boolean);
+    if (positions.length < 2) continue;
+
+    ctx.save();
+    ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 0.8;
+    for (let i = 0; i < positions.length; i++) {
+      for (let j = i + 1; j < positions.length; j++) {
+        ctx.beginPath();
+        ctx.moveTo(positions[i].s.x, positions[i].s.y);
+        ctx.lineTo(positions[j].s.x, positions[j].s.y);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+    const mx = positions.reduce((s,p)=>s+p.s.x,0)/positions.length;
+    const my = positions.reduce((s,p)=>s+p.s.y,0)/positions.length;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '9px JetBrains Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('CONJUNCTION', mx, my - 8);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
 }
 function drawUncertaintyCone(o, t) {
   if(!state.uncertainty)return;
@@ -663,22 +1418,34 @@ const _T_SIM_RAF = _J2000_RAF + 9643 * 86400000; // sim epoch = 2026-05-27
 let last=performance.now();
 function tick(now) {
   const dt=Math.min(0.1,(now-last)/1000); last=now;
-  if(state.playing) {
-    // If simTime is within 1 minute of real time, pin it directly to Date.now()
-    // so live mode has zero accumulation error and zero drift.
-    const realNow = (Date.now() - _T_SIM_RAF) / 86400000;
-    if (Math.abs(state.simTime - realNow) < 1 / (24 * 60)) {
-      state.simTime = realNow;
-    } else {
-      state.simTime += dt * state.daysPerSec * state.speed;
-    }
+  if (state.playing) {
+    // Simulate mode: advance time by wall-clock dt × simulation speed
+    state.simTime += dt * state.daysPerSec * state.speed;
+  } else {
+    // Live mode: pin to real time every frame — zero drift, zero accumulation error
+    state.simTime = (Date.now() - _T_SIM_RAF) / 86400000;
   }
   ctx.clearRect(0,0,W,H);
-  for(const p of PLANETS){if(p.inner&&!state.inner)continue; drawOrbit(p,'rgba(255,255,255,1)',0.07);}
+  if (state.showPlanets && state.showOrbits) {
+    for(const p of PLANETS){
+      if(!state.planetToggles[p.key])continue;
+      const lw = p.inner ? 0.5 : 0.8;
+      drawOrbit(p, p.color, 0.25, lw);
+    }
+  }
   drawSun();
+  drawMPCAsteroids();
+  drawPromotedObject();
   for(const n of NEOS) drawNEO(n,state.simTime);
-  for(const p of PLANETS){if(p.inner&&!state.inner)continue; drawPlanet(p,state.simTime);}
+  if (state.showPlanets) {
+    for(const p of PLANETS){
+      if(!state.planetToggles[p.key])continue;
+      drawPlanet(p,state.simTime);
+    }
+  }
+  drawActiveConjunctions(state.simTime);
   drawJupiterVector(state.simTime);
+  updateScaleBar();
   updateClock();
   requestAnimationFrame(tick);
 }
@@ -707,6 +1474,29 @@ function updateClock() {
   document.getElementById('sim-clock-val').textContent =
     p.year + '·' + p.month + '·' + p.day + ' ' + p.hour + ':' + p.minute + ' ' + tzLabel;
 }
+function updateScaleBar() {
+  const ROUND = [0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100];
+  const scale = state.pxPerAU * state.zoom;
+  let chosen = ROUND[0];
+  for (const v of ROUND) {
+    chosen = v;
+    if (v * scale >= 80) break;
+  }
+  const barPx = Math.round(chosen * scale);
+  const label = chosen < 1 ? chosen + ' AU' : (chosen >= 1 ? chosen + ' AU' : chosen + ' AU');
+  const line = document.getElementById('dyn-scale-line');
+  const lbl  = document.getElementById('dyn-scale-label');
+  if (line) line.style.width = barPx + 'px';
+  if (lbl)  lbl.textContent  = label;
+}
+
+// Vis-viva orbital speed: v = sqrt(GM*(2/r - 1/a)) in km/s
+function visVivaKms(a, r) {
+  const GM = 4*Math.PI*Math.PI; // AU³/yr²
+  const v_AU_per_yr = Math.sqrt(GM * (2/r - 1/a));
+  return +(v_AU_per_yr * 29.7827).toFixed(1); // 1 AU/yr = 29.7827 km/s
+}
+
 function renderList() {
   const q=state.search.toLowerCase().trim();
   const filtered=NEOS.filter(n=>{
@@ -735,23 +1525,157 @@ function renderSelected() {
   document.getElementById('el-i').innerHTML=`${n.i.toFixed(2)}<small>°</small>`;
   document.getElementById('el-o').textContent=`${n.om.toFixed(0)}·${n.w.toFixed(0)}`;
 }
+function renderAlignments() {
+  const list = document.getElementById('alignments-list');
+  if (!list) return;
+  if (!ALIGNMENTS || !ALIGNMENTS.length) {
+    list.innerHTML='<div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-4);padding:4px 0;">No conjunctions found in next 12 months.</div>';
+    return;
+  }
+  list.innerHTML = ALIGNMENTS.map(al=>`
+    <div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,0.01);">
+      <div style="font-family:var(--font-display);font-weight:500;font-size:13px;margin-bottom:4px;">${al.bodies.join(' ↔ ')}</div>
+      <div style="font-family:var(--font-mono);font-size:10px;color:var(--ink-3);">${al.date} · ${al.minSeparation}° sep${al.type==='triple'?' · triple':''}</div>
+      <button data-simday="${al.simDay}" style="margin-top:8px;padding:3px 10px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink-3);font-family:var(--font-mono);font-size:10px;cursor:pointer;transition:all 160ms;" onmouseover="this.style.color='var(--ink)'" onmouseout="this.style.color='var(--ink-3)'">Jump →</button>
+    </div>
+  `).join('');
+  list.querySelectorAll('[data-simday]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ state.simTime=parseFloat(btn.dataset.simday); });
+  });
+}
+
 document.getElementById('search-input').addEventListener('input',e=>{state.search=e.target.value;renderList();});
 document.querySelectorAll('#filter-chips .chip').forEach(c=>c.addEventListener('click',()=>{state.filter=c.dataset.risk;document.querySelectorAll('#filter-chips .chip').forEach(x=>x.classList.toggle('active',x===c));renderList();}));
-function toggle(id,key,cb){document.getElementById(id).addEventListener('click',function(){state[key]=!state[key];this.classList.toggle('on',state[key]);if(cb)cb();});}
-toggle('tg-jup','jupiter',()=>document.getElementById('pert-val').textContent=['Sun',state.saturn&&'Saturn',state.jupiter&&'Jupiter'].filter(Boolean).join(' · '));
-toggle('tg-sat','saturn',()=>document.getElementById('pert-val').textContent=['Sun',state.saturn&&'Saturn',state.jupiter&&'Jupiter'].filter(Boolean).join(' · '));
-toggle('tg-unc','uncertainty'); toggle('tg-trail','trails'); toggle('tg-inner','inner');
+function toggle(id,key,cb){const el=document.getElementById(id);if(!el)return;el.addEventListener('click',function(){state[key]=!state[key];this.classList.toggle('on',state[key]);if(cb)cb();});}
+toggle('tg-jup','jupiter',()=>document.getElementById('pert-val').textContent=['Sun','Uranus','Neptune',state.saturn&&'Saturn',state.jupiter&&'Jupiter'].filter(Boolean).join(' · '));
+toggle('tg-sat','saturn',()=>document.getElementById('pert-val').textContent=['Sun','Uranus','Neptune',state.saturn&&'Saturn',state.jupiter&&'Jupiter'].filter(Boolean).join(' · '));
+toggle('tg-unc','uncertainty'); toggle('tg-trail','trails');
+toggle('tg-planets','showPlanets'); toggle('tg-orbits','showOrbits');
+toggle('tg-mpc','showMPC', () => { if (state.showMPC && !_mpcLoaded) loadMPCAsteroids(); });
+
+// Individual planet checkboxes
+['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune'].forEach(key=>{
+  const el=document.getElementById('ptg-'+key);
+  if(!el)return;
+  el.checked=state.planetToggles[key];
+  el.addEventListener('change',()=>{ state.planetToggles[key]=el.checked; });
+});
 const dtSlider=document.getElementById('dt-slider');
 dtSlider.addEventListener('input',()=>{const v=parseFloat(dtSlider.value),lo=Math.log(0.001),hi=Math.log(365),d=Math.exp(lo+(v/100)*(hi-lo));state.daysPerSec=Math.max(0.1,d*10);document.getElementById('dt-val').textContent=`Δt = ${d<1?d.toFixed(3):d<10?d.toFixed(2):d.toFixed(0)} d`;dtSlider.style.setProperty('--p',v+'%');});
 dtSlider.style.setProperty('--p',dtSlider.value+'%');
 const playIc=document.getElementById('play-ic');
-document.getElementById('btn-play').addEventListener('click',()=>{state.playing=!state.playing;playIc.innerHTML=state.playing?'<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>':'<path d="M8 5v14l11-7z"/>';});
+document.getElementById('btn-play').addEventListener('click',()=>{
+  state.playing=!state.playing;
+  playIc.innerHTML=state.playing?'<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>':'<path d="M8 5v14l11-7z"/>';
+  _updateLiveBtn();
+});
 document.getElementById('btn-fwd').addEventListener('click',()=>{state.speed=Math.min(8,state.speed*2);document.getElementById('speed-val').textContent='×'+state.speed.toFixed(1);});
 document.getElementById('btn-rew').addEventListener('click',()=>{state.speed=Math.max(0.125,state.speed/2);document.getElementById('speed-val').textContent='×'+state.speed.toFixed(1);});
-cv.addEventListener('mousemove',e=>{const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let best=null,bestD=22;for(const n of NEOS){const p=orbitPos(n,state.simTime),s=ws(p.x,p.y),d=Math.hypot(s.x-x,s.y-y);if(d<bestD){bestD=d;best=n;}}const tt=document.getElementById('tooltip');if(best){state.hoverId=best.id;tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');document.getElementById('tt-name').textContent=best.name;document.getElementById('tt-desig').textContent=best.desig;document.getElementById('tt-d').textContent=`${best.nextLD} LD · ${best.nextKm} km`;document.getElementById('tt-v').textContent=`${best.vel} km/s`;cv.style.cursor='pointer';}else{state.hoverId=null;tt.classList.remove('show');cv.style.cursor='crosshair';}});
-cv.addEventListener('mouseleave',()=>{state.hoverId=null;document.getElementById('tooltip').classList.remove('show');});
-cv.addEventListener('click',()=>{if(state.hoverId){state.selectedId=state.hoverId;renderList();renderSelected();}});
-cv.addEventListener('wheel',e=>{e.preventDefault();state.zoom=Math.max(0.3,Math.min(3,state.zoom*(1-Math.sign(e.deltaY)*0.12)));document.getElementById('scale-val').textContent=`1 AU = ${(state.pxPerAU*state.zoom).toFixed(0)} px`;},{passive:false});
+// ─── Drag-pan state ──────────────────────────────────────────────────────────
+let _panDragging = false, _panSX = 0, _panSY = 0, _panX0 = 0, _panY0 = 0;
+
+cv.style.cursor = 'grab';
+
+cv.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  _panDragging = true;
+  _panSX = e.clientX; _panSY = e.clientY;
+  _panX0 = state.panX; _panY0 = state.panY;
+  cv.style.cursor = 'grabbing';
+});
+
+cv.addEventListener('mouseup', () => {
+  if (_panDragging) { _panDragging = false; cv.style.cursor = 'grab'; }
+});
+
+cv.addEventListener('dblclick', () => { state.panX = 0; state.panY = 0; });
+
+cv.addEventListener('mousemove',e=>{
+  const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  if (_panDragging) {
+    state.panX = _panX0 + (e.clientX - _panSX);
+    state.panY = _panY0 + (e.clientY - _panSY);
+  }
+  let best=null,bestD=22;
+  for(const n of NEOS){const p=orbitPos(n,state.simTime),s=ws(p.x,p.y),d=Math.hypot(s.x-x,s.y-y);if(d<bestD){bestD=d;best=n;}}
+  // Check planet hover
+  let bestPlanet=null,bestPD=18;
+  if(state.showPlanets){
+    for(const p of PLANETS){
+      if(!state.planetToggles[p.key])continue;
+      const pos=orbitPos(p,state.simTime),s=ws(pos.x,pos.y),d=Math.hypot(s.x-x,s.y-y);
+      if(d<bestPD){bestPD=d;bestPlanet=p;}
+    }
+  }
+  const tt=document.getElementById('tooltip');
+  if(best){
+    state.hoverId=best.id; state.hoverPlanet=null; _hoverMPC=null;
+    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
+    document.getElementById('tt-name').textContent=best.name;
+    document.getElementById('tt-desig').textContent=best.desig;
+    document.getElementById('tt-d').textContent=`${best.nextLD} LD · ${best.nextKm} km`;
+    document.getElementById('tt-v').textContent=`${best.vel} km/s`;
+    cv.style.cursor='pointer';
+  } else if(bestPlanet){
+    state.hoverId=null; state.hoverPlanet=bestPlanet.key; _hoverMPC=null;
+    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
+    const pos=orbitPos(bestPlanet,state.simTime);
+    const r_AU=Math.sqrt(pos.x*pos.x+pos.y*pos.y);
+    const T_yr=Math.pow(bestPlanet.a,1.5);
+    const spd=visVivaKms(bestPlanet.a, r_AU);
+    document.getElementById('tt-name').textContent=bestPlanet.name;
+    document.getElementById('tt-desig').textContent=`T = ${T_yr.toFixed(2)} yr`;
+    document.getElementById('tt-d').textContent=`${r_AU.toFixed(3)} AU`;
+    document.getElementById('tt-v').textContent=`${spd} km/s`;
+    cv.style.cursor='pointer';
+  } else if(state.showMPC && _mpcLoaded) {
+    // ── MPC asteroid hover via O(1) spatial hash ──────────────────────────
+    const hit = _mpcHit(x, y);
+    if(hit){
+      state.hoverId=null; state.hoverPlanet=null; _hoverMPC=hit;
+      const ast=hit.ast;
+      const currentJD = _SIM_EPOCH_JD + state.simTime;
+      const astPos = getMPCPosition(ast, currentJD);
+      const earthPos = orbitPos(PLANETS[2], state.simTime);
+      const dist_AU = Math.hypot(astPos.x - earthPos.x, astPos.y - earthPos.y);
+      const dist_LD = (dist_AU / 0.00257).toFixed(2);
+      const q = ast.a * (1 - ast.e);
+      const type = ast.a < 1 ? 'Aten' : q < 1.017 ? 'Apollo' : q < 1.3 ? 'Amor' : 'MBA';
+      tt.style.left=x+'px'; tt.style.top=y+'px'; tt.classList.add('show');
+      document.getElementById('tt-name').textContent = ast.name || ast.designation;
+      document.getElementById('tt-desig').textContent = ast.designation + ' · ' + type + ' · H=' + (ast.H||'?');
+      document.getElementById('tt-d').textContent = dist_LD + ' LD · ' + dist_AU.toFixed(4) + ' AU';
+      document.getElementById('tt-v').textContent = 'click for N-body dossier';
+      cv.style.cursor='pointer';
+    } else {
+      state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null;
+      tt.classList.remove('show');
+      if(!_panDragging) cv.style.cursor='grab';
+    }
+  } else{
+    state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null;
+    tt.classList.remove('show');
+    if(!_panDragging) cv.style.cursor='grab';
+  }
+});
+
+cv.addEventListener('mouseleave',()=>{
+  _panDragging=false;
+  state.hoverId=null; state.hoverPlanet=null;
+  document.getElementById('tooltip').classList.remove('show');
+  cv.style.cursor='grab';
+});
+cv.addEventListener('click',()=>{
+  if(state.hoverId){
+    // Close dossier when clicking a tracked NEO
+    closeMPCDossier();
+    state.selectedId=state.hoverId; renderList(); renderSelected();
+  } else if(_hoverMPC) {
+    // Promote MPC asteroid to N-body and open dossier
+    openMPCDossier(_hoverMPC);
+  }
+});
+cv.addEventListener('wheel',e=>{e.preventDefault();state.zoom=Math.max(0.035,Math.min(15,state.zoom*(1-Math.sign(e.deltaY)*0.12)));document.getElementById('scale-val').textContent=`1 AU = ${(state.pxPerAU*state.zoom).toFixed(0)} px`;},{passive:false});
 document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key==='/'){{e.preventDefault();document.getElementById('search-input').focus();}}if(e.key===' '){e.preventDefault();document.getElementById('btn-play').click();}});
 
 // ─── Return to Live button ─────────────────────────────────────────────────
@@ -769,47 +1693,33 @@ function _nowSimDays() {
 const _LIVE_THRESH_DAYS = 1 / (24 * 60);
 
 function _updateLiveBtn() {
-  const isLive = state.playing &&
-                 Math.abs(state.simTime - _nowSimDays()) < _LIVE_THRESH_DAYS;
+  // is-live class (cobalt + pulsing dot) fires when simulating —
+  // it signals "you've left live mode, click to return".
+  const isSimulating = state.playing;
 
   ['btn-live', 'fab-live'].forEach(function (id) {
     const el = document.getElementById(id);
     if (!el) return;
-    el.classList.toggle('is-live', isLive);
+    el.classList.toggle('is-live', isSimulating);
     const label = el.querySelector('#live-label, .fab-label');
-    if (label) label.textContent = isLive ? '● LIVE' : '→ LIVE';
+    if (label) label.textContent = isSimulating ? '● LIVE' : 'SIMULATE';
     const dot = el.querySelector('#live-dot, .fab-dot');
-    if (dot) dot.style.animationPlayState = isLive ? 'running' : 'paused';
+    if (dot) dot.style.animationPlayState = isSimulating ? 'running' : 'paused';
   });
 }
 
 function _handleLive() {
-  const nowDays = _nowSimDays();
-  // Require state.playing so that pausing immediately ends "live" —
-  // prevents the 60-second window where re-clicking was a no-op.
-  const isCurrentlyLive = state.playing &&
-                          Math.abs(state.simTime - nowDays) < _LIVE_THRESH_DAYS;
-
-  if (isCurrentlyLive) {
-    // DEACTIVATE — reload to clean state
-    window.location.reload();
+  if (state.playing) {
+    // Simulate → Live: stop accumulation, pin immediately to Date.now()
+    state.playing  = false;
+    state.simTime  = (Date.now() - _T_SIM_RAF) / 86400000;
+    playIc.innerHTML = '<path d="M8 5v14l11-7z"/>';  // play icon
   } else {
-    // ACTIVATE — snap to real time and resume
-    state.simTime    = nowDays;
-    state.playing    = true;
-    state.speed      = 1.0;
-    state.daysPerSec = 1.0;
-    document.getElementById('play-ic').innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
-    document.getElementById('speed-val').textContent = '×1.0';
+    // Live → Simulate: start accumulating from current real time
+    state.playing = true;
+    playIc.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';  // pause icon
   }
-
-  // sync both buttons to the NEW state
-  const live = !isCurrentlyLive;
-  ['btn-live', 'fab-live'].forEach(function (id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle('is-live', live);
-  });
-  document.getElementById('live-label').textContent = live ? '● LIVE' : '→ LIVE';
+  _updateLiveBtn();
 }
 // Both LIVE buttons (desktop topbar + mobile FAB) share the exact same handler
 [document.getElementById('btn-live'), document.getElementById('fab-live')]
@@ -914,7 +1824,7 @@ function _updateSheetSummary(n) {
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      state.zoom = Math.max(0.3, Math.min(3, state.zoom * (d / pinchDist)));
+      state.zoom = Math.max(0.008, Math.min(50, state.zoom * (d / pinchDist)));
       pinchDist  = d;
       document.getElementById('scale-val').textContent =
         '1 AU = ' + (state.pxPerAU * state.zoom).toFixed(0) + ' px';
@@ -940,7 +1850,7 @@ renderSelected = (function (orig) {
   };
 }(renderSelected));
 
-renderList(); renderSelected();
+renderList(); renderSelected(); renderAlignments(); updateScaleBar();
 
 // Custom timezone dropdowns — desktop + mobile stay in sync
 (function () {

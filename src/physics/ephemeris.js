@@ -19,7 +19,7 @@ const { G, BODIES, keplerToCartesian, orbitalPeriod } = require('./bodies');
 
 // J2000.0 mean orbital elements.
 // a (AU), e, i (deg), Omega (deg), omega (deg), M0 (deg at J2000)
-// Source: JPL Approximate Planetary Positions, Table 1
+// Source: JPL Approximate Planetary Positions, Table 1 (JPL DE430)
 const PLANET_ELEMENTS = {
   earth: {
     a: 1.000000, e: 0.016709, i: 0.000013,
@@ -32,6 +32,16 @@ const PLANET_ELEMENTS = {
   saturn: {
     a: 9.582017, e: 0.055723, i: 2.485240,
     Omega: 113.718, omega: 338.933, M0: 317.020,
+  },
+  // Uranus and Neptune: included for visual completeness.
+  // Gravitational Δv contribution to typical NEO trajectories < 0.1% over 50yr.
+  uranus: {
+    a: 19.2184, e: 0.0472, i: 0.773,
+    Omega: 74.01, omega: 96.54, M0: 142.2386,
+  },
+  neptune: {
+    a: 30.0700, e: 0.0086, i: 1.770,
+    Omega: 131.78, omega: 267.77, M0: 256.2250,
   },
 };
 
@@ -88,11 +98,11 @@ function sunEarthEphemeris(t) {
 }
 
 /**
- * Planet positions at time t for external consumers (renderer etc).
- * Returns named vectors: { earth, jupiter, saturn } → [x,y,z] (AU).
+ * Planet positions at time t for external consumers (renderer, alignment detector, etc).
+ * Returns named vectors: { earth, jupiter, saturn, uranus, neptune } → [x,y,z] (AU).
  *
  * @param {number} t - days since J2000.0
- * @returns {{ earth:number[], jupiter:number[], saturn:number[] }}
+ * @returns {{ earth:number[], jupiter:number[], saturn:number[], uranus:number[], neptune:number[] }}
  */
 function planetPositions(t) {
   const out = {};

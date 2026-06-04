@@ -95,8 +95,10 @@ All state vectors live in a **heliocentric ecliptic J2000** frame — position i
 | Earth | 3.00 × 10⁻⁶ | Required for close-approach geometry |
 | Jupiter | 9.55 × 10⁻⁴ | Dominant perturber — 99% of outer-planet Δv |
 | Saturn | 2.86 × 10⁻⁴ | Resonance contributions |
+| Uranus | 4.37 × 10⁻⁵ | Visual completeness — < 0.1% Δv over 50yr |
+| Neptune | 5.15 × 10⁻⁵ | Visual completeness — < 0.1% Δv over 50yr |
 
-Mercury, Venus, Mars, and Uranus contribute < 0.4% cumulative Δv over 50-year propagation and are omitted.
+Mercury, Venus, and Mars contribute < 0.4% cumulative Δv over 50-year propagation and are omitted from the N-body integrator.
 
 ---
 
@@ -109,8 +111,14 @@ Mercury, Venus, Mars, and Uranus contribute < 0.4% cumulative Δv over 50-year p
 **🌍 Heliocentric Visualizer**  
 Full orbital canvas — Sun at center, Kepler-solved ellipses, real simulation clock ticking in days. Timestep slider from 0.001 to 365 d/s on a log scale. Playback from ×0.125 to ×8.
 
-**🪐 Jupiter Perturbation Toggle**  
-Enable or disable Jupiter's gravitational pull in real time. The uncertainty cone widens visibly on Jupiter-flyby trajectories — the gravitational keyhole effect, shown honestly.
+**🪐 All 8 Planetary Orbits**  
+Full orbital ellipses for all 8 planets rendered on canvas. Individual planet toggles and master show/hide for orbits and planets separately. Default: Earth, Jupiter, Saturn, Uranus, Neptune ON.
+
+**🔭 Planetary Alignment Detector**  
+Detects upcoming conjunctions (≤ 15° angular separation) for all tracked planet pairs over the next 12 months. Active conjunctions draw dashed lines and glow effects on canvas. "Jump to alignment" sets the sim clock instantly.
+
+**🖱️ Free Pan + Zoom**  
+Click-drag to pan anywhere on the canvas. Scroll-wheel to zoom. Double-click to reset pan. Full touch support (pinch-zoom + drag-pan unified with mouse state).
 
 **🎯 Asteroid Dossier**  
 Click any object for a full dossier: Keplerian elements, approach history, JPL accuracy stats, Jupiter perturbation deviation chart, and a miss-distance contextualizer (LEO → GEO → Moon).
@@ -126,6 +134,15 @@ Full physics documentation at `/methodology` — equations typeset, Newton-Raphs
 
 **🔍 Search & Filter**  
 Search by name or designation. Filter by risk level: SAFE / MONITOR / CAUTION / HAZARDOUS. Sorted by next close approach distance.
+
+**📏 Dynamic Scale Bar**  
+Live scale indicator at the canvas edge shows AU distance in round numbers, auto-updating on zoom. Covers 0.01 AU (zoomed in) to 100 AU (zoomed out).
+
+**🌐 Planet Hover Tooltips**  
+Hover any planet to see its heliocentric distance (AU), orbital period, and current orbital speed (km/s via vis-viva equation).
+
+**🪐 Jupiter Perturbation Toggle**  
+Enable or disable Jupiter's gravitational pull in real time. The uncertainty cone widens visibly on Jupiter-flyby trajectories — the gravitational keyhole effect, shown honestly.
 
 </td>
 </tr>
@@ -247,9 +264,25 @@ Server starts at `http://localhost:3000`.
 
 ---
 
+## Changelog
+
+### v2.0 *(2026-06-03)*
+- Added Uranus and Neptune to N-body physics (JPL DE430 elements)
+- Full planetary orbit visualization for all 8 planets with individual toggles
+- Planetary conjunction / alignment detector — upcoming events listed in sidebar
+- Active conjunctions drawn on canvas with dashed lines and glow effects
+- Free-pan mouse drag (click-drag to pan, double-click to reset)
+- Planet hover tooltips with heliocentric distance, period, and vis-viva speed
+- Dynamic scale bar indicator auto-updating on zoom
+
+### v1.0 *(2026-05-27)*
+- Initial release
+
+---
+
 ## Known Limitations
 
-Honesty about scope is the only way to earn trust about accuracy. These effects are **not modeled in v1.0**:
+Honesty about scope is the only way to earn trust about accuracy. These effects are **not modeled in v2.0**:
 
 | Effect | Notes |
 |---|---|

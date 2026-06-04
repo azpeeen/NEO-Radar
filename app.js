@@ -29,6 +29,7 @@ app.use('/',            require('./routes/index'));
 app.use('/radar',       require('./routes/radar'));
 app.use('/asteroid',    require('./routes/asteroid'));
 app.use('/methodology', require('./routes/methodology'));
+app.use('/api',         require('./routes/api'));
 
 app.use((req, res) => {
   res.status(404).send('404 — page not found');
@@ -40,6 +41,17 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`NEO Radar → http://localhost:${PORT}`);
 });
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n✗ Port ${PORT} already in use. Kill the existing process first:\n  npx kill-port ${PORT}\n`);
+    process.exit(1);
+  } else {
+    throw err;
+  }
+});
+
+// Non-blocking MPC asteroid seed (runs after server is ready)
+require('./src/data/seedMPC')().catch(e => console.warn('[MPC] Seed error:', e.message));

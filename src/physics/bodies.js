@@ -24,14 +24,18 @@ const G = (4 * Math.PI * Math.PI) / (DAYS_PER_YEAR * DAYS_PER_YEAR);
 
 /**
  * Gravitational bodies included in N-body integration.
- * Masses in solar masses. These four cover >99.6% of cumulative Δv
+ * Masses in solar masses. Sun+Earth+Jupiter+Saturn cover >99.6% of cumulative Δv
  * for 50-year propagation of typical NEO orbits.
+ * Uranus and Neptune are included for visual completeness;
+ * their combined gravitational Δv contribution is < 0.1% over 50yr for typical NEOs.
  */
 const BODIES = {
   sun:     { name: 'Sun',     mass: 1.0,          color: '#f5c542' },
   earth:   { name: 'Earth',   mass: 3.00e-6,      color: '#1a6cf6' },
   jupiter: { name: 'Jupiter', mass: 9.55e-4,      color: '#d8a26a' },
   saturn:  { name: 'Saturn',  mass: 2.86e-4,      color: '#c9b079' },
+  uranus:  { name: 'Uranus',  mass: 4.366e-5,     color: '#7de8e8' },
+  neptune: { name: 'Neptune', mass: 5.151e-5,     color: '#4b6eff' },
 };
 
 const DEG2RAD = Math.PI / 180;

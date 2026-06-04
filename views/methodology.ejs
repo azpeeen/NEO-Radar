@@ -474,7 +474,7 @@
 <main>
   <!-- HERO -->
   <header class="m-hero">
-    <span class="eyebrow">Engineering Documentation · v1.0</span>
+    <span class="eyebrow">Engineering Documentation · v2.0</span>
     <h1>The physics of <span class="accent">NEO Radar.</span></h1>
     <p class="lede">
       Every orbital trajectory in NEO Radar is integrated from real JPL Horizons ephemeris
@@ -483,8 +483,8 @@
       the physics engine and the rendering layer.
     </p>
     <div class="meta">
-      <span>Author · <strong>NEO Radar Team</strong></span>
-      <span>Revision · <strong>1.0 · 2026·05·26</strong></span>
+      <span>Author · <strong>Davi Martins</strong></span>
+      <span>Revision · <strong>2.0 · 2026·06·03</strong></span>
       <span>Reading time · <strong>~14 min</strong></span>
       <span>Citation · <strong>doi:placeholder</strong></span>
     </div>
@@ -663,12 +663,15 @@
     <!-- 04 -->
     <section class="chapter" id="bodies">
       <div class="num">04 · Gravitational bodies</div>
-      <h2>Four perturbers cover &gt; 99.6% of cumulative Δv.</h2>
+      <h2>Six perturbers — four dynamic, two for visual completeness.</h2>
       <p>
-        We include the Sun and three perturbing bodies — Earth, Jupiter, Saturn —
-        in every integration. Mercury, Venus, Mars, and Uranus contribute below
-        the 0.4% threshold for 50-year propagation of typical NEO orbits and are
-        omitted for performance.
+        We include the Sun and five perturbing bodies in every integration.
+        Earth, Jupiter, and Saturn cover &gt; 99.6% of cumulative Δv for 50-year
+        propagation of typical NEO orbits. Uranus and Neptune are now included
+        for visual completeness and honest solar-system representation; their
+        combined gravitational Δv contribution to typical NEO trajectories is
+        &lt; 0.1% over 50 years. Mercury, Venus, and Mars contribute below the
+        0.4% threshold and are omitted.
       </p>
 
       <div class="bodies">
@@ -704,13 +707,33 @@
         </div>
         <div class="body-card">
           <div class="l">
-            <span class="swatch" style="background:#d4c79c; color:#d4c79c"></span>
+            <span class="swatch" style="background:#c9b079; color:#c9b079"></span>
             <div>
               <div class="name">Saturn</div>
               <div class="role">Secondary · resonance contributions</div>
             </div>
           </div>
           <div class="mass">2.86 × 10⁻⁴<br/><small>M<sub>☉</sub></small></div>
+        </div>
+        <div class="body-card">
+          <div class="l">
+            <span class="swatch" style="background:#7de8e8; color:#7de8e8"></span>
+            <div>
+              <div class="name">Uranus</div>
+              <div class="role">Visual completeness · &lt; 0.1% Δv over 50yr</div>
+            </div>
+          </div>
+          <div class="mass">4.37 × 10⁻⁵<br/><small>M<sub>☉</sub></small></div>
+        </div>
+        <div class="body-card">
+          <div class="l">
+            <span class="swatch" style="background:#4b6eff; color:#4b6eff"></span>
+            <div>
+              <div class="name">Neptune</div>
+              <div class="role">Visual completeness · &lt; 0.1% Δv over 50yr</div>
+            </div>
+          </div>
+          <div class="mass">5.15 × 10⁻⁵<br/><small>M<sub>☉</sub></small></div>
         </div>
       </div>
     </section>
@@ -866,10 +889,11 @@ Renderer <span class="comment">/* canvas, never touches physics */</span></pre>
         <li>
           <span class="label">Lunar</span>
           <span class="desc">
-            <strong>Earth–Moon barycenter offset</strong> — modeled as a single point mass
-            at the EMB. Close approaches inside the lunar distance see ~1500 km
-            position error from this approximation; acceptable for visualization,
-            not for impact prediction.
+            <strong>Earth–Moon barycenter modeled as point mass at EMB.</strong>
+            Close approaches inside the lunar distance see ~1500 km position error
+            from this approximation; acceptable for visualization, not for impact
+            prediction. Full Earth–Moon system (two-body sub-integration) is
+            planned for v3.
           </span>
         </li>
       </ul>

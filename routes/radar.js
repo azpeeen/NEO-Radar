@@ -2,6 +2,7 @@
 
 const { Router } = require('express');
 const { getCatalog } = require('../src/data/catalog');
+const { findUpcomingAlignments, SIM_EPOCH_J2000 } = require('../src/physics/alignments');
 
 const router = Router();
 
@@ -16,12 +17,21 @@ router.get('/', (req, res) => {
   const focusObj = focus ? catalog.find(n => n.id === focus) : null;
   const focusId  = focusObj ? focusObj.id : 'apophis';
 
+  // Compute upcoming planetary conjunctions for the next 365 days
+  let alignments = [];
+  try {
+    alignments = findUpcomingAlignments(SIM_EPOCH_J2000, 365, 15);
+  } catch (e) {
+    // Non-fatal: alignment detection is cosmetic
+  }
+
   res.render('radar', {
     page:    'radar',
     title:   'NEO Radar — Orbital Visualizer',
     neos:    catalog,
     focusId,
-    focusDate: date || null,
+    focusDate:  date || null,
+    alignments,
   });
 });
 
