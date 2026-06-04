@@ -57,7 +57,7 @@ Newton-Raphson iteration on Kepler's equation.
 
 Seed: `E₀ = M + e·sin(M)`  
 Tolerance: `ε < 1e-12`  
-Convergence: **3.4 iterations** mean across the 47-object catalog.
+Convergence: **3.4 iterations** mean across the 47-object high-fidelity catalog.
 
 </td>
 <td width="33%">
@@ -120,8 +120,11 @@ Detects upcoming conjunctions (≤ 15° angular separation) for all tracked plan
 **🖱️ Free Pan + Zoom**  
 Click-drag to pan anywhere on the canvas. Scroll-wheel to zoom. Double-click to reset pan. Full touch support (pinch-zoom + drag-pan unified with mouse state).
 
-**🎯 Asteroid Dossier**  
-Click any object for a full dossier: Keplerian elements, approach history, JPL accuracy stats, Jupiter perturbation deviation chart, and a miss-distance contextualizer (LEO → GEO → Moon).
+**🌌 41,812 MPC Catalog Asteroids**  
+Full Minor Planet Center catalog rendered as a background layer with real Keplerian positions and Laplace-Lagrange secular perturbation. Color-coded by orbital class: Aten, Apollo, Amor. Toggleable. Loaded from local JSON cache.
+
+**🎯 Full Physical Dossier**  
+Click any object — from either the 47 high-fidelity objects or the 41,812 MPC catalog — for an instant dossier: Keplerian elements, MOID, Tisserand parameter, diameter estimates (3 albedo scenarios), impact energy in Mt TNT, Monte Carlo close-approach uncertainty (N=64), JPL Small-Body Database enrichment, and miss-distance context (LEO → GEO → Moon).
 
 </td>
 <td width="50%">
@@ -201,7 +204,10 @@ src/physics/          ← PURE module — zero DOM, zero canvas, zero fetch
   integrator.js       RK4 + adaptive timestep N-body integrator
   bodies.js           gravitational constants + keplerToCartesian
   uncertainty.js      Monte Carlo covariance propagation (N=256)
-  ephemeris.js        J2000 planet positions vs time (Earth/Jupiter/Saturn)
+  ephemeris.js        J2000 planet positions vs time (all 8 planets)
+  secular.js          Laplace-Lagrange secular perturbation rates (Jupiter + Saturn)
+  derive.js           orbital derived quantities — MOID, Tisserand, diameter, impact energy
+  promote.js          on-demand RK4 N-body promotion + Monte Carlo close-approach (N=64)
 
         │  frozen State[] arrays — never shared code  │
 
@@ -209,7 +215,9 @@ src/renderer/         ← zero physics dependencies
   canvas2d.js         heliocentric Canvas2D renderer
 
 src/data/
-  catalog.js          47-object NEO catalog with full Keplerian elements
+  catalog.js          47-object high-fidelity NEO catalog with full Keplerian elements
+  parseMPC.js         MPC MPCORB.DES fixed-width parser (41,812 NEAs)
+  seedMPC.js          MPC catalog seed → local JSON/SQLite cache
 
 scripts/
   benchmark.js        50-year accuracy table (node scripts/benchmark.js)
@@ -265,6 +273,17 @@ Server starts at `http://localhost:3000`.
 ---
 
 ## Changelog
+
+### v3.0 *(2026-06-04)*
+- 41,812 MPC catalog asteroids with real Keplerian positions, color-coded by orbital class
+- Laplace-Lagrange secular perturbation for catalog layer — Jupiter + Saturn, O(1) per frame
+- Click any catalog asteroid to promote to full RK4 N-body integration on demand
+- Full physical dossier: MOID, Tisserand parameter, diameter (3 albedo scenarios), impact energy in Mt TNT
+- JPL Small-Body Database enrichment per asteroid (discovery date, albedo, spectral class)
+- Monte Carlo close-approach uncertainty propagation (N=64) for promoted asteroids
+- Spatial hash grid for O(1) hover detection across 41k+ canvas points
+- `GET /api/asteroids/bulk` and `GET /api/asteroid/:designation` endpoints
+- `GET /api/asteroid/:designation/trajectory?jd=<JD>` — full RK4 promotion server-side
 
 ### v2.0 *(2026-06-03)*
 - Added Uranus and Neptune to N-body physics (JPL DE430 elements)
