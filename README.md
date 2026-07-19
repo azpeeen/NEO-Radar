@@ -12,7 +12,7 @@
 [![NASA NeoWs](https://img.shields.io/badge/API-NASA%20NeoWs-FC3D21?style=flat-square&logo=nasa)](https://api.nasa.gov)
 [![License](https://img.shields.io/badge/License-MIT-f0f4ff?style=flat-square)](LICENSE)
 
-[**🔭 Open Radar →**](https://neo-radar.azpen.dev) &nbsp;·&nbsp; [Methodology](https://neo-radar.azpen.dev/methodology) &nbsp;·&nbsp; [About the author](#author)
+[**🔭 Open Radar →**](https://neoradar.space/) &nbsp;·&nbsp; [Methodology](https://neoradar.space/methodology) &nbsp;·&nbsp; [About the author](#author)
 
 ![NEO Radar Hero](public/assets/asteroid-poster.png)
 
