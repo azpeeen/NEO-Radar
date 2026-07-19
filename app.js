@@ -12,7 +12,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc:  ["'self'", "'unsafe-inline'"],
+      scriptSrc:  ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
       styleSrc:   ["'self'", "'unsafe-inline'"],
       mediaSrc:   ["'self'"],                   
       imgSrc:     ["'self'", "data:"],
@@ -24,6 +24,12 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// The Three.js renderer lives in src/renderer/ (architecture rule: renderer
+// code stays in the renderer layer) but is served as a classic script here.
+app.get('/js/renderer3d.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'src', 'renderer', 'threejs.js'));
+});
 
 app.use('/',            require('./routes/index'));
 app.use('/radar',       require('./routes/radar'));

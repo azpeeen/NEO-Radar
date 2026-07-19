@@ -19,7 +19,6 @@
   .topbar .right { display: flex; align-items: center; gap: 16px; }
   .canvas-area { grid-area: canvas; position: relative; overflow: hidden; background: radial-gradient(1200px 800px at 40% 40%, rgba(26,108,246,0.06), transparent 60%), #050508; }
   .canvas-area canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  .stars { position: absolute; inset: 0; background-image: radial-gradient(0.7px 0.7px at 20% 30%, rgba(255,255,255,0.6), transparent 50%), radial-gradient(1px 1px at 65% 70%, rgba(255,255,255,0.4), transparent 50%), radial-gradient(0.7px 0.7px at 80% 20%, rgba(255,255,255,0.7), transparent 50%), radial-gradient(0.7px 0.7px at 35% 85%, rgba(255,255,255,0.3), transparent 50%), radial-gradient(1.2px 1.2px at 50% 50%, rgba(200,220,255,0.5), transparent 50%); background-size: 700px 500px; opacity: 0.6; animation: drift 360s linear infinite; pointer-events: none; }
   .canvas-overlay { position: absolute; pointer-events: none; z-index: 4; }
   .corner-overlay { padding: 14px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
   .corner-overlay .v { color: var(--ink-2); }
@@ -397,6 +396,34 @@
   .tz-menu li.active { color: var(--cobalt-soft); background: rgba(26,108,246,0.08); }
   /* Hide topbar TZ wrap on mobile (lives in sidebar there) */
   @media (max-width: 767px) { .tz-wrap { display: none; } }
+
+  /* ── Focus Mode HUD ─────────────────────────────────────────── */
+  #focus-hud {
+    position: absolute; top: 16px; left: 16px; z-index: 6;
+    min-width: 232px; padding: 14px 16px;
+    background: rgba(5,6,12,0.78);
+    border: 1px solid var(--line-strong); border-radius: 10px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font-family: var(--font-mono);
+    opacity: 0; transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity 300ms, transform 300ms;
+  }
+  #focus-hud.show { opacity: 1; transform: translateY(0); }
+  #focus-hud .fh-title { font-size: 9px; letter-spacing: 0.22em; color: var(--cobalt-soft); }
+  #focus-hud .fh-rule { height: 1px; background: var(--line); margin: 10px 0; }
+  #focus-hud .fh-name { font-family: var(--font-display); font-size: 18px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink); }
+  #focus-hud .fh-desig { font-size: 9.5px; color: var(--ink-4); letter-spacing: 0.12em; margin-top: 3px; text-transform: uppercase; }
+  #focus-hud .fh-kv { display: flex; justify-content: space-between; gap: 18px; font-size: 10.5px; margin: 4px 0; }
+  #focus-hud .fh-kv .k { color: var(--ink-4); letter-spacing: 0.14em; }
+  #focus-hud .fh-kv .v { color: var(--ink); font-variant-numeric: tabular-nums; }
+  #focus-hud .fh-exit { font-size: 9.5px; letter-spacing: 0.16em; color: var(--ink-3); cursor: pointer; pointer-events: auto; transition: color 160ms; }
+  #focus-hud .fh-exit:hover { color: var(--ink); }
+  #focus-hud .fh-exit .kbd-esc { display: inline-block; padding: 1px 5px; border: 1px solid var(--line-strong); border-radius: 4px; margin-right: 6px; color: var(--ink-2); }
+  /* Clean canvas while focused: hide chrome that only makes sense in map view */
+  .canvas-area.focus-active .legend,
+  .canvas-area.focus-active .scale-bar,
+  .canvas-area.focus-active .corner-overlay { display: none; }
 </style>
 
 <div class="radar-shell">
@@ -448,11 +475,10 @@
   </div>
 
   <div class="canvas-area" data-screen-label="02 Radar — Canvas">
-    <div class="stars" aria-hidden="true"></div>
     <canvas id="radar-canvas"></canvas>
     <div class="canvas-overlay corner-overlay" style="top:0;left:0;">
       <div>FRAME · <span class="v">Heliocentric Ecliptic J2000</span></div>
-      <div style="margin-top:4px;">SCALE · <span class="v" id="scale-val">1 AU = 80 px</span></div>
+      <div style="margin-top:4px;">SCALE · <span class="v" id="scale-val">1 AU = 120 px</span></div>
     </div>
     <div class="canvas-overlay corner-overlay" style="top:0;right:0;text-align:right;">
       <div id="hud-tracking-line">TRACKING · <span class="v" id="hud-count"><%= neos.length %> HIGH-FIDELITY</span></div>
@@ -473,6 +499,41 @@
       <div id="dyn-scale-line" style="height:2px;background:var(--ink-2);width:80px;flex-shrink:0;"></div>
       <span id="dyn-scale-label">1 AU</span>
     </div>
+    <!-- bottom-center: the right corner is covered by the dossier panel
+         (open exactly when this shows) and the legend owns the bottom-left -->
+    <div id="repr-notice" style="
+      display:none;
+      position:absolute;
+      bottom:60px;
+      left:50%;
+      transform:translateX(-50%);
+      z-index:4;
+      padding:6px 10px;
+      background:rgba(5,5,10,0.75);
+      border:1px solid var(--line);
+      border-radius:6px;
+      backdrop-filter:blur(8px);
+      font-family:var(--font-mono);
+      font-size:9px;
+      letter-spacing:0.10em;
+      color:var(--ink-4);
+      pointer-events:none;
+    ">⚠ ARTISTIC REPRESENTATION</div>
+
+    <!-- Focus Mode HUD — hidden by default, .show while focused -->
+    <div id="focus-hud" aria-hidden="true">
+      <div class="fh-title">FOCUS MODE</div>
+      <div class="fh-rule"></div>
+      <div class="fh-name" id="fh-name">—</div>
+      <div class="fh-desig" id="fh-desig">—</div>
+      <div class="fh-rule"></div>
+      <div class="fh-kv"><span class="k">VELOCITY</span><span class="v" id="fh-vel">—</span></div>
+      <div class="fh-kv"><span class="k">DIST SUN</span><span class="v" id="fh-sun">—</span></div>
+      <div class="fh-kv"><span class="k">DIST EARTH</span><span class="v" id="fh-earth">—</span></div>
+      <div class="fh-rule"></div>
+      <div class="fh-exit" id="fh-exit"><span class="kbd-esc">ESC</span>EXIT FOCUS</div>
+    </div>
+
     <div class="obj-tooltip" id="tooltip">
       <div class="name" id="tt-name">—</div>
       <div class="desig" id="tt-desig">—</div>
@@ -713,6 +774,13 @@
   </button>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- GLTFLoader served locally (CSP allows 'self' + cdnjs only; cdnjs lacks examples/).
+     Fetched by scripts/downloadAsteroidModels.js — if absent, the renderer
+     detects the missing THREE.GLTFLoader and uses procedural meshes only. -->
+<script src="/js/GLTFLoader.js"></script>
+<script src="/js/renderer3d.js"></script>
+
 <script>
 // Catalog injected server-side from src/data/catalog.js (47 objects)
 const NEOS = <%- JSON.stringify(neos.map(n => ({
@@ -759,7 +827,7 @@ if (_FOCUS_DATE) {
 
 const state = {
   selectedId: (_FOCUS_ID && NEOS.find(n => n.id === _FOCUS_ID)) ? _FOCUS_ID : (NEOS[0] && NEOS[0].id),
-  hoverId: null, hoverPlanet: null,
+  hoverId: null, hoverPlanet: null, hoverLuna: false,
   filter: 'all', search: '',
   // playing=false → live mode (JD pinned to Date.now() every frame)
   // playing=true  → simulate mode (dt accumulates)
@@ -770,9 +838,16 @@ const state = {
     ? _initSimTime
     : (Date.now() - (Date.UTC(2000, 0, 1, 12, 0, 0) + 9643 * 86400000)) / 86400000,
   jupiter: true, saturn: true, uncertainty: true, trails: true, inner: false,
-  pxPerAU: 80, zoom: 1.0, panX: 0, panY: 0,
+  pxPerAU: 120, zoom: 1.0, panX: 0, panY: 0,
   showPlanets: true, showOrbits: true, showMPC: true,
   planetToggles: { mercury:false, venus:false, earth:true, mars:false, jupiter:true, saturn:true, uranus:true, neptune:true },
+  // ── Focus mode ──
+  focusMode: false,        // true while focused (exit animation runs after → false)
+  focusTarget: null,       // { type:'neo'|'planet'|'mpc', idx?|ast?, name, desig, a }
+  focusLerp: 0,            // 0→1 entry animation progress (eased in tick)
+  _focusCamTheta: 0,       // spherical camera orbit around the focused object
+  _focusCamPhi: Math.PI / 4,
+  _focusCamRadius: 1.5,    // AU
 };
 
 function solveKepler(M, e) {
@@ -785,6 +860,17 @@ function orbitPos(o, t) {
   const x=o.a*(Math.cos(E)-o.e), y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E);
   const ang=((o.w||0)+(o.om||0))*Math.PI/180;
   return { x:x*Math.cos(ang)-y*Math.sin(ang), y:x*Math.sin(ang)+y*Math.cos(ang) };
+}
+
+// ─── Moon — visual-only circular orbit ───────────────────────────────────────
+// Sole declaration of these globals: renderer3d.js (loaded earlier) reads them
+// at render time — do NOT redeclare there (classic scripts share global scope).
+const MOON_PERIOD = 27.321661;                                   // days, sidereal
+const MOON_A      = 0.00257;                                     // AU (384,400 km)
+const MOON_PHASE0 = ((9643 % MOON_PERIOD) / MOON_PERIOD) * 2 * Math.PI; // at sim epoch
+function moonPos(simTime) {                                      // geocentric, AU
+  var angle = MOON_PHASE0 + (simTime / MOON_PERIOD) * 2 * Math.PI;
+  return { x: MOON_A * Math.cos(angle), y: MOON_A * Math.sin(angle) };
 }
 
 // ─── MPC asteroid layer (Layer 2 — Keplerian + Laplace-Lagrange secular) ─────
@@ -884,6 +970,7 @@ async function loadMPCAsteroids() {
       _mpcAsteroids[k]._sec = computeSecularRates(_mpcAsteroids[k]);
     }
     _mpcLoaded = true;
+    _initMPCBuffers();
 
     // Update HUD catalog count
     var el = document.getElementById('hud-catalog-count');
@@ -931,151 +1018,64 @@ function getMPCPosition(ast, currentJD) {
   return { x, y };
 }
 
-function drawMPCAsteroids() {
-  if (!state.showMPC || !_mpcLoaded || _mpcAsteroids.length === 0) return;
+// ─── MPC point-cloud bridge ──────────────────────────────────────────────────
+// Positions are still solved HERE (Layer 2 Kepler + secular) and written into
+// a flat Float32Array that the renderer uploads as ONE THREE.Points draw call.
+let _mpcPositions = null, _mpcColors = null;
+
+function _initMPCBuffers() {
+  const N = _mpcAsteroids.length;
+  _mpcPositions = new Float32Array(N * 3);
+  _mpcColors    = new Float32Array(N * 3);
+  for (var k = 0; k < N; k++) {
+    const ast = _mpcAsteroids[k];
+    const q = ast.a * (1 - ast.e);
+    let r, g, b;
+    if      (ast.a < 1.0) { r = 1;    g = 0.39; b = 0.39; }  // Aten
+    else if (q < 1.017)   { r = 1;    g = 0.71; b = 0.20; }  // Apollo
+    else                  { r = 0.31; g = 0.50; b = 0.80; }  // Amor (dimmed — 2D drew it at lower alpha)
+    _mpcColors[k*3] = r; _mpcColors[k*3+1] = g; _mpcColors[k*3+2] = b;
+  }
+  _renderer.setMPC(_mpcPositions, _mpcColors, N);
+}
+
+function updateMPCFrame() {
+  if (!state.showMPC || !_mpcLoaded || !_mpcPositions) return false;
   const currentJD = _SIM_EPOCH_JD + state.simTime;
 
   // Reset per-frame visibility list (used for spatial hash + hit test)
   _mpcVisible = [];
 
-  const atenPts = [], apolloPts = [], amorPts = [];
-
   for (var mi = 0; mi < _mpcAsteroids.length; mi++) {
     const ast = _mpcAsteroids[mi];
     const pos = getMPCPosition(ast, currentJD);
-    const s   = ws(pos.x, pos.y);
+    const i3  = mi * 3;
 
-    // Viewport culling
+    // Promoted asteroid is rendered as its own mesh — park its point off-world
+    if (_promotedAst && ast === _promotedAst) {
+      _mpcPositions[i3] = 1e6; _mpcPositions[i3+1] = 1e6;
+    } else {
+      _mpcPositions[i3] = pos.x; _mpcPositions[i3+1] = pos.y;
+    }
+
+    // Viewport culling now only matters for hit detection — GPU clips the rest
+    const s = ws(pos.x, pos.y);
     if (s.x < -4 || s.x > W + 4 || s.y < -4 || s.y > H + 4) continue;
 
     _mpcVisible.push({ ast, sx: s.x, sy: s.y });
-
-    // Promoted asteroid gets special highlight in drawPromotedObject — still draw dim dot
-    const isPromoted = _promotedAst && ast === _promotedAst;
-    const size = isPromoted ? 0 : Math.max(0.7, Math.min(2.0, (25 - ast.H) / 8));
-    if (isPromoted) continue; // skip, drawn separately
-
-    const q = ast.a * (1 - ast.e);
-    if      (ast.a < 1.0)    atenPts.push({ x: s.x, y: s.y, r: size });
-    else if (q < 1.017)      apolloPts.push({ x: s.x, y: s.y, r: size });
-    else                     amorPts.push({ x: s.x, y: s.y, r: size });
   }
-
-  // Batch draw by type — fillRect is faster than arc for 41k tiny dots
-  ctx.save();
-  const _batch = (pts, color) => {
-    if (!pts.length) return;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    for (var pi = 0; pi < pts.length; pi++) {
-      const p = pts[pi];
-      ctx.rect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
-    }
-    ctx.fill();
-  };
-  _batch(atenPts,   'rgba(255,100,100,0.50)');
-  _batch(apolloPts, 'rgba(255,180,50,0.50)');
-  _batch(amorPts,   'rgba(100,160,255,0.40)');
-
-  // Hover highlight
-  if (_hoverMPC) {
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath();
-    ctx.arc(_hoverMPC.sx, _hoverMPC.sy, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.restore();
 
   // Rebuild spatial hash from this frame's visible set
   _buildGrid();
+  return true;
 }
 
 // Start loading MPC data (non-blocking)
 if (state.showMPC) loadMPCAsteroids();
 
-// ─── Promoted object drawing (Layer 3 — active only when panel is open) ──────
-
-function drawPromotedObject() {
-  if (!_promotedAst) return;
-
-  const currentJD = _SIM_EPOCH_JD + state.simTime;
-  const pos = getMPCPosition(_promotedAst, currentJD);
-  const s   = ws(pos.x, pos.y);
-
-  ctx.save();
-
-  // ── Trajectory polyline ───────────────────────────────────────────────────
-  if (_promotedResult && _promotedResult.trajectory && _promotedResult.trajectory.length > 1) {
-    const traj = _promotedResult.trajectory;
-    ctx.beginPath();
-    let first = true;
-    for (var ti = 0; ti < traj.length; ti += 2) {  // every 2nd point = 2-day cadence
-      const pt = traj[ti];
-      const sp = ws(pt[0], pt[1]);
-      if (sp.x < -20 || sp.x > W + 20 || sp.y < -20 || sp.y > H + 20) { first = true; continue; }
-      if (first) { ctx.moveTo(sp.x, sp.y); first = false; } else ctx.lineTo(sp.x, sp.y);
-    }
-    ctx.strokeStyle = '#1a6cf6';
-    ctx.lineWidth   = 1.2;
-    ctx.globalAlpha = 0.75;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    // ── Monte Carlo uncertainty positions at close approach ─────────────────
-    const unc = _promotedResult.uncertainty;
-    if (unc && unc.caPositions && unc.caPositions.length > 4) {
-      ctx.beginPath();
-      for (var ui = 0; ui < unc.caPositions.length; ui++) {
-        const p = unc.caPositions[ui];
-        const sp = ws(p[0], p[1]);
-        const r = 2.5;
-        ctx.rect(sp.x - r, sp.y - r, r * 2, r * 2);
-      }
-      ctx.fillStyle = 'rgba(255,107,43,0.22)';
-      ctx.fill();
-    }
-  }
-
-  // ── Dashed line to Earth with real-time distance label ───────────────────
-  const earthPos = orbitPos(PLANETS[2], state.simTime);
-  const se = ws(earthPos.x, earthPos.y);
-  const dist2D = Math.hypot(pos.x - earthPos.x, pos.y - earthPos.y);
-  const distLD = (dist2D / 0.00257).toFixed(2);
-
-  ctx.setLineDash([3, 5]);
-  ctx.beginPath();
-  ctx.moveTo(s.x, s.y);
-  ctx.lineTo(se.x, se.y);
-  ctx.strokeStyle = 'rgba(26,108,246,0.45)';
-  ctx.lineWidth   = 0.9;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  const midX = (s.x + se.x) / 2, midY = (s.y + se.y) / 2;
-  ctx.fillStyle = 'rgba(26,108,246,0.9)';
-  ctx.font = '9px JetBrains Mono';
-  ctx.fillText(distLD + ' LD', midX + 4, midY - 3);
-
-  // ── Pulsing ring + bright dot ─────────────────────────────────────────────
-  const pulse = 5 + Math.sin(state.simTime * 3) * 2;
-  ctx.beginPath();
-  ctx.arc(s.x, s.y, pulse + 7, 0, Math.PI * 2);
-  ctx.strokeStyle = '#1a6cf6';
-  ctx.lineWidth   = 1.5;
-  ctx.globalAlpha = 0.4 + 0.2 * Math.sin(state.simTime * 3);
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-
-  ctx.beginPath();
-  ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
-  ctx.fillStyle = '#1a6cf6';
-  ctx.shadowColor = '#1a6cf6'; ctx.shadowBlur = 8;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  ctx.restore();
-}
+// ─── Promoted object (Layer 3) ────────────────────────────────────────────────
+// Rendered by ThreeJSRenderer: procedural mesh + RK4 trajectory + MC cloud.
+// Per-frame position/Earth-distance data is packed into _frame.promoted in tick().
 
 // ─── MPC Dossier panel — static rendering helpers ────────────────────────────
 
@@ -1215,8 +1215,12 @@ function _renderDossierTrajectory(result) {
   const sig = unc.sigma3_AU;
   _setText('dos-sigma', sig != null ? sig.toExponential(3) + ' AU (' + (sig/0.00257).toFixed(4) + ' LD)' : '—');
 
-  // Store result for canvas rendering
+  // Hand the RK4 trajectory + Monte Carlo cloud to the renderer as flat arrays
   _promotedResult = result;
+  _renderer.setPromotedTrajectory(
+    result.trajectory || [],
+    (result.uncertainty && result.uncertainty.caPositions) || []
+  );
 }
 
 // ─── Open / close dossier ─────────────────────────────────────────────────────
@@ -1226,6 +1230,13 @@ async function openMPCDossier(entry) {
   _promotedAst    = ast;
   _promotedResult = null;
   _hoverMPC       = null;
+
+  // 3D mesh — NASA shape model when the designation has one, procedural
+  // otherwise. promote() fires onModelApplied when a real GLB lands and the
+  // #repr-notice text upgrades from "artistic" to the mission credit.
+  _promoModelText = null;
+  _renderer.promote(ast.designation, ast.name);
+  _refreshReprNotice();
 
   const dossier = document.getElementById('mpc-dossier');
   dossier.classList.add('open');
@@ -1281,6 +1292,9 @@ async function openMPCDossier(entry) {
 function closeMPCDossier() {
   _promotedAst    = null;
   _promotedResult = null;
+  _renderer.demote();  // disposes mesh + trajectory geometry/materials
+  _promoModelText = null;
+  _refreshReprNotice();
   document.getElementById('mpc-dossier').classList.remove('open');
   const hudLine = document.getElementById('hud-promoted-line');
   if (hudLine) hudLine.style.display = 'none';
@@ -1288,27 +1302,39 @@ function closeMPCDossier() {
 
 document.getElementById('dos-close').addEventListener('click', closeMPCDossier);
 
-const cv=document.getElementById('radar-canvas'), ctx=cv.getContext('2d');
+// ─── Three.js renderer bootstrap ─────────────────────────────────────────────
+// Orbit polylines are precomputed HERE (the Kepler solver stays page-side —
+// src/renderer/ receives flat vertex arrays only, never solves anything).
+function buildOrbitPts(o, segments) {
+  const pts = new Float32Array(segments * 3);
+  const ang = ((o.w||0)+(o.om||0))*Math.PI/180, ca = Math.cos(ang), sa = Math.sin(ang);
+  for (let k = 0; k < segments; k++) {
+    const M = (k/segments)*2*Math.PI + (o.phase||0);
+    const E = solveKepler(M, o.e);
+    const x = o.a*(Math.cos(E)-o.e), y = o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E);
+    pts[k*3]   = x*ca - y*sa;
+    pts[k*3+1] = x*sa + y*ca;
+  }
+  return pts;
+}
+
+const _container = document.querySelector('.canvas-area');
+const _renderer  = new ThreeJSRenderer(_container, {
+  planets: PLANETS.map(p => ({ key:p.key, name:p.name, color:p.color, r:p.r, glow:!!p.glow, ring:!!p.ring, orbitPts: buildOrbitPts(p, 200) })),
+  neos:    NEOS.map(n => ({ id:n.id, name:n.name, risk:n.risk, orbitPts: buildOrbitPts(n, 200) })),
+  textureBase: '/assets/textures/',
+});
+// Same #radar-canvas node as before — every mouse/touch listener stays valid
+const cv = _renderer.domElement;
 let W=0, H=0, DPR=1;
 function resize() {
-  const r=cv.parentElement.getBoundingClientRect(); DPR=Math.max(1,window.devicePixelRatio||1);
-  W=r.width; H=r.height; cv.width=W*DPR; cv.height=H*DPR;
-  cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0);
+  const r=_container.getBoundingClientRect();
+  W=r.width; H=r.height; DPR=Math.max(1,window.devicePixelRatio||1);
+  _renderer.resize();
 }
 resize(); window.addEventListener('resize', resize);
 function ws(x,y){return{x:W/2+state.panX+x*state.pxPerAU*state.zoom, y:H/2+state.panY+y*state.pxPerAU*state.zoom};}
 
-function drawOrbit(o, color, alpha=0.18, lw=0.8) {
-  ctx.beginPath();
-  for(let k=0;k<=200;k++){const Mt=(k/200)*2*Math.PI+(o.phase||0),E=solveKepler(Mt,o.e),x=o.a*(Math.cos(E)-o.e),y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E),ang=((o.w||0)+(o.om||0))*Math.PI/180,s=ws(x*Math.cos(ang)-y*Math.sin(ang),x*Math.sin(ang)+y*Math.cos(ang));k===0?ctx.moveTo(s.x,s.y):ctx.lineTo(s.x,s.y);}
-  ctx.strokeStyle=color; ctx.globalAlpha=alpha; ctx.lineWidth=lw; ctx.stroke(); ctx.globalAlpha=1;
-}
-function drawSun() {
-  const s=ws(0,0), g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,80);
-  g.addColorStop(0,'rgba(255,220,160,0.8)'); g.addColorStop(0.4,'rgba(255,180,100,0.12)'); g.addColorStop(1,'rgba(255,180,100,0)');
-  ctx.fillStyle=g; ctx.fillRect(s.x-100,s.y-100,200,200);
-  ctx.fillStyle='#ffd87a'; ctx.beginPath(); ctx.arc(s.x,s.y,5,0,Math.PI*2); ctx.fill();
-}
 function isActiveConjunctionPlanet(key, t) {
   if (!ALIGNMENTS || !ALIGNMENTS.length) return false;
   const nameToKey = { Earth:'earth', Jupiter:'jupiter', Saturn:'saturn', Uranus:'uranus', Neptune:'neptune' };
@@ -1318,102 +1344,65 @@ function isActiveConjunctionPlanet(key, t) {
   );
 }
 
-function drawPlanet(p, t) {
-  const pos=orbitPos(p,t), s=ws(pos.x,pos.y);
-  const conjActive = isActiveConjunctionPlanet(p.key, t);
-  if(conjActive){
-    const g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,p.r*5);
-    g.addColorStop(0,p.color+'44');g.addColorStop(1,p.color+'00');
-    ctx.fillStyle=g;ctx.fillRect(s.x-p.r*6,s.y-p.r*6,p.r*12,p.r*12);
-  }
-  if(p.glow){const g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,30);g.addColorStop(0,p.color);g.addColorStop(0.3,p.color+'66');g.addColorStop(1,p.color+'00');ctx.fillStyle=g;ctx.fillRect(s.x-40,s.y-40,80,80);}
-  ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(s.x,s.y,p.r,0,Math.PI*2); ctx.fill();
-  if(p.ring){ctx.strokeStyle='rgba(212,199,156,0.5)';ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(s.x,s.y,p.r*2.2,p.r*0.6,0.3,0,Math.PI*2);ctx.stroke();}
-  ctx.fillStyle='rgba(200,210,230,0.65)'; ctx.font='10px JetBrains Mono'; ctx.fillText(p.name,s.x+p.r+6,s.y+3);
-}
-
-function drawActiveConjunctions(t) {
-  if (!ALIGNMENTS || !ALIGNMENTS.length) return;
+// Active conjunctions in WORLD coordinates — the renderer projects and draws
+function computeActiveConjunctions(t) {
+  if (!ALIGNMENTS || !ALIGNMENTS.length) return [];
   const nameToKey = { Earth:'earth', Jupiter:'jupiter', Saturn:'saturn', Uranus:'uranus', Neptune:'neptune' };
   const keyToPlanet = {};
   for (const p of PLANETS) keyToPlanet[p.key] = p;
-
+  const out = [];
   for (const al of ALIGNMENTS) {
     if (Math.abs(t - al.simDay) > 3) continue;
-    const positions = al.bodies.map(name => {
-      const key = nameToKey[name] || name.toLowerCase();
-      const planet = keyToPlanet[key];
-      if (!planet) return null;
-      const pos = orbitPos(planet, t);
-      return { name, s: ws(pos.x, pos.y) };
+    const pts = al.bodies.map(name => {
+      const planet = keyToPlanet[nameToKey[name] || name.toLowerCase()];
+      return planet ? orbitPos(planet, t) : null;
     }).filter(Boolean);
-    if (positions.length < 2) continue;
-
-    ctx.save();
-    ctx.setLineDash([4, 6]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 0.8;
-    for (let i = 0; i < positions.length; i++) {
-      for (let j = i + 1; j < positions.length; j++) {
-        ctx.beginPath();
-        ctx.moveTo(positions[i].s.x, positions[i].s.y);
-        ctx.lineTo(positions[j].s.x, positions[j].s.y);
-        ctx.stroke();
-      }
-    }
-    ctx.setLineDash([]);
-    const mx = positions.reduce((s,p)=>s+p.s.x,0)/positions.length;
-    const my = positions.reduce((s,p)=>s+p.s.y,0)/positions.length;
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = '9px JetBrains Mono';
-    ctx.textAlign = 'center';
-    ctx.fillText('CONJUNCTION', mx, my - 8);
-    ctx.textAlign = 'left';
-    ctx.restore();
+    if (pts.length >= 2) out.push({ pts });
   }
+  return out;
 }
-function drawUncertaintyCone(o, t) {
-  if(!state.uncertainty)return;
+
+// Uncertainty ribbon in WORLD coordinates — same math as before, fixed-size
+// arrays so the renderer can update one BufferGeometry with zero allocation
+const _CONE_N = 101;
+const _coneUpper = new Float32Array(_CONE_N * 2);
+const _coneLower = new Float32Array(_CONE_N * 2);
+function computeUncertaintyCone(o, t) {
   const pts=[];
-  for(let k=0;k<=100;k++){const dt=(k-50)*8,tt=t+dt,period=Math.pow(o.a,1.5),Mt=((tt/365.25)/period)*2*Math.PI+(o.phase||0),E=solveKepler(Mt,o.e),x=o.a*(Math.cos(E)-o.e),y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E),ang=((o.w||0)+(o.om||0))*Math.PI/180,wx=x*Math.cos(ang)-y*Math.sin(ang),wy=x*Math.sin(ang)+y*Math.cos(ang),jup=orbitPos(PLANETS[4],tt),dJ=Math.hypot(wx-jup.x,wy-jup.y);pts.push({x:wx,y:wy,w:0.005+0.05/(dJ*dJ+0.4)});}
-  const upper=[],lower=[];
-  for(let k=0;k<pts.length;k++){const p=pts[k],next=pts[Math.min(k+1,pts.length-1)],dx=next.x-p.x,dy=next.y-p.y,len=Math.hypot(dx,dy)||1e-9,nx=-dy/len,ny=dx/len;upper.push(ws(p.x+nx*p.w,p.y+ny*p.w));lower.push(ws(p.x-nx*p.w,p.y-ny*p.w));}
-  ctx.beginPath(); ctx.moveTo(upper[0].x,upper[0].y);
-  for(const p of upper)ctx.lineTo(p.x,p.y);
-  for(let k=lower.length-1;k>=0;k--)ctx.lineTo(lower[k].x,lower[k].y);
-  ctx.closePath();
-  const isCaution=(o.risk==='caution'||o.risk==='hazard');
-  ctx.fillStyle=isCaution?'rgba(255,107,43,0.10)':'rgba(26,108,246,0.08)'; ctx.fill();
-  ctx.strokeStyle=isCaution?'rgba(255,107,43,0.25)':'rgba(26,108,246,0.18)'; ctx.lineWidth=0.6; ctx.stroke();
+  for(let k=0;k<_CONE_N;k++){const dt=(k-50)*8,tt=t+dt,period=Math.pow(o.a,1.5),Mt=((tt/365.25)/period)*2*Math.PI+(o.phase||0),E=solveKepler(Mt,o.e),x=o.a*(Math.cos(E)-o.e),y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E),ang=((o.w||0)+(o.om||0))*Math.PI/180,wx=x*Math.cos(ang)-y*Math.sin(ang),wy=x*Math.sin(ang)+y*Math.cos(ang),jup=orbitPos(PLANETS[4],tt),dJ=Math.hypot(wx-jup.x,wy-jup.y);pts.push({x:wx,y:wy,w:0.005+0.05/(dJ*dJ+0.4)});}
+  for(let k=0;k<pts.length;k++){const p=pts[k],next=pts[Math.min(k+1,pts.length-1)],dx=next.x-p.x,dy=next.y-p.y,len=Math.hypot(dx,dy)||1e-9,nx=-dy/len,ny=dx/len;_coneUpper[k*2]=p.x+nx*p.w;_coneUpper[k*2+1]=p.y+ny*p.w;_coneLower[k*2]=p.x-nx*p.w;_coneLower[k*2+1]=p.y-ny*p.w;}
 }
-function drawNEO(n, t) {
-  const pos=orbitPos(n,t), s=ws(pos.x,pos.y), isSel=state.selectedId===n.id, isHov=state.hoverId===n.id;
-  let color,alpha;
-  if(n.risk==='hazard'){color='rgba(255,107,43,1)';alpha=isSel?0.7:0.35;}
-  else if(n.risk==='caution'){color='rgba(255,180,80,1)';alpha=isSel?0.6:0.3;}
-  else if(n.risk==='monitor'){color='rgba(111,180,255,1)';alpha=isSel?0.55:0.25;}
-  else{color='rgba(170,180,210,1)';alpha=isSel?0.45:0.18;}
-  drawOrbit(n,color,alpha);
-  if(isSel)drawUncertaintyCone(n,t);
-  if(isSel){const pulse=4+Math.sin(t*0.5)*1.2;ctx.beginPath();ctx.arc(s.x,s.y,pulse+6,0,Math.PI*2);ctx.fillStyle=(n.risk==='caution'||n.risk==='hazard')?'rgba(255,107,43,0.18)':'rgba(26,108,246,0.22)';ctx.fill();}
-  ctx.beginPath(); ctx.arc(s.x,s.y,isSel?4:(isHov?3.5:2.4),0,Math.PI*2);
-  ctx.fillStyle=(n.risk==='hazard'||n.risk==='caution')?'#ff8a55':(n.risk==='monitor'?'#6fb4ff':'#cfd6ea'); ctx.fill();
-  if(isSel||isHov){ctx.fillStyle='rgba(240,244,255,0.85)';ctx.font='11px Space Grotesk';ctx.fillText(n.name,s.x+8,s.y-6);}
-}
-function drawJupiterVector(t) {
-  if(!state.jupiter)return;
-  const sel=NEOS.find(n=>n.id===state.selectedId); if(!sel)return;
-  const ap=orbitPos(sel,t),jp=orbitPos(PLANETS[4],t),dx=jp.x-ap.x,dy=jp.y-ap.y,d=Math.hypot(dx,dy);
-  if(d>6)return;
-  const a=ws(ap.x,ap.y),b=ws(ap.x+dx*0.06,ap.y+dy*0.06);
-  ctx.strokeStyle='rgba(255,107,43,0.75)'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-  const ang=Math.atan2(b.y-a.y,b.x-a.x);
-  ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x-6*Math.cos(ang-0.4),b.y-6*Math.sin(ang-0.4)); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x-6*Math.cos(ang+0.4),b.y-6*Math.sin(ang+0.4)); ctx.stroke();
-  ctx.fillStyle='rgba(255,107,43,0.9)'; ctx.font='10px JetBrains Mono'; ctx.fillText('+Δv',b.x+4,b.y-4);
+
+// Jupiter Δv vector endpoints in WORLD coordinates
+function computeJupiterVector(t, f) {
+  f.active = false;
+  if (!state.jupiter) return;
+  const sel = NEOS.find(n => n.id === state.selectedId); if (!sel) return;
+  const ap = orbitPos(sel, t), jp = orbitPos(PLANETS[4], t);
+  const dx = jp.x - ap.x, dy = jp.y - ap.y, d = Math.hypot(dx, dy);
+  if (d > 6) return;
+  f.active = true;
+  f.ax = ap.x; f.ay = ap.y; f.bx = ap.x + dx*0.06; f.by = ap.y + dy*0.06;
 }
 
 const _J2000_RAF = Date.UTC(2000, 0, 1, 12, 0, 0);
 const _T_SIM_RAF = _J2000_RAF + 9643 * 86400000; // sim epoch = 2026-05-27
+
+// Per-frame flat data handed to the renderer (preallocated — no GC churn)
+const _frame = {
+  planets: PLANETS.map(() => ({ x:0, y:0, visible:false, conj:false })),
+  neos:    NEOS.map(() => ({ x:0, y:0 })),
+  selIdx: -1, hovIdx: -1,
+  cone: { active:false, risky:false, count:_CONE_N, upper:_coneUpper, lower:_coneLower },
+  jup:  { active:false, ax:0, ay:0, bx:0, by:0 },
+  conjs: [],
+  mpcDirty: false,
+  hoverMPC: null,
+  luna: { x:0, y:0, visible:false },
+  promoted: { active:false, x:0, y:0, ex:0, ey:0, distLD:'' },
+  focus: { active:false, shown:false, x:0, y:0, camTheta:0, camPhi:Math.PI/4, camRadius:1.5 },
+  focusFade: 0,
+};
 
 let last=performance.now();
 function tick(now) {
@@ -1425,26 +1414,80 @@ function tick(now) {
     // Live mode: pin to real time every frame — zero drift, zero accumulation error
     state.simTime = (Date.now() - _T_SIM_RAF) / 86400000;
   }
-  ctx.clearRect(0,0,W,H);
-  if (state.showPlanets && state.showOrbits) {
-    for(const p of PLANETS){
-      if(!state.planetToggles[p.key])continue;
-      const lw = p.inner ? 0.5 : 0.8;
-      drawOrbit(p, p.color, 0.25, lw);
+  const t = state.simTime;
+
+  for (let i=0;i<PLANETS.length;i++) {
+    const p=PLANETS[i], f=_frame.planets[i];
+    f.visible = state.showPlanets && !!state.planetToggles[p.key];
+    if (f.visible) {
+      const pos=orbitPos(p,t);
+      f.x=pos.x; f.y=pos.y;
+      f.conj=isActiveConjunctionPlanet(p.key,t);
     }
   }
-  drawSun();
-  drawMPCAsteroids();
-  drawPromotedObject();
-  for(const n of NEOS) drawNEO(n,state.simTime);
-  if (state.showPlanets) {
-    for(const p of PLANETS){
-      if(!state.planetToggles[p.key])continue;
-      drawPlanet(p,state.simTime);
-    }
+
+  // Moon: heliocentric = Earth + geocentric circle (visual only, no physics)
+  {
+    const ef=_frame.planets[2], lf=_frame.luna;
+    lf.visible = ef.visible;
+    if (ef.visible) { const mp=moonPos(t); lf.x=ef.x+mp.x; lf.y=ef.y+mp.y; }
   }
-  drawActiveConjunctions(state.simTime);
-  drawJupiterVector(state.simTime);
+
+  _frame.selIdx=-1; _frame.hovIdx=-1;
+  for (let i=0;i<NEOS.length;i++) {
+    const n=NEOS[i], pos=orbitPos(n,t), f=_frame.neos[i];
+    f.x=pos.x; f.y=pos.y;
+    if (n.id===state.selectedId) _frame.selIdx=i;
+    if (n.id===state.hoverId)    _frame.hovIdx=i;
+  }
+
+  _frame.cone.active = false;
+  if (state.uncertainty && _frame.selIdx>=0) {
+    const n=NEOS[_frame.selIdx];
+    computeUncertaintyCone(n,t);
+    _frame.cone.active = true;
+    _frame.cone.risky  = (n.risk==='caution'||n.risk==='hazard');
+  }
+
+  computeJupiterVector(t, _frame.jup);
+  _frame.conjs = computeActiveConjunctions(t);
+  _frame.mpcDirty = updateMPCFrame();
+  _frame.hoverMPC = _hoverMPC;
+
+  if (_promotedAst) {
+    const currentJD=_SIM_EPOCH_JD+t;
+    const pos=getMPCPosition(_promotedAst,currentJD);
+    const ep=orbitPos(PLANETS[2],t);
+    const pr=_frame.promoted;
+    pr.active=true; pr.x=pos.x; pr.y=pos.y; pr.ex=ep.x; pr.ey=ep.y;
+    pr.distLD=(Math.hypot(pos.x-ep.x,pos.y-ep.y)/0.00257).toFixed(2);
+  } else {
+    _frame.promoted.active=false;
+  }
+
+  // ── Focus mode: animation progress + per-frame target data ──
+  const fo=_frame.focus;
+  fo.active=false; fo.shown=false; _frame.focusFade=0;
+  if (state.focusTarget) {
+    // focusMode true → lerp toward 1 (enter); false → back to 0 (exit)
+    const dirF=state.focusMode?1:-1;
+    state.focusLerp=Math.min(1,Math.max(0,state.focusLerp+dirF*dt/1.2));
+    const eF=_easeInOutCubic(state.focusLerp);
+    _frame.focusFade=1-Math.abs(eF*2-1);           // black at the midpoint
+    fo.active=true;
+    fo.shown=eF>=0.5;                              // second half renders the focus scene
+    const tp=_focusTargetPos(t);
+    fo.x=tp.x; fo.y=tp.y;
+    fo.camTheta=state._focusCamTheta;
+    fo.camPhi=state._focusCamPhi;
+    // Dolly-in on entry / dolly-out on exit, on top of the user's zoom radius
+    const t2=Math.min(1,Math.max(0,(eF-0.5)*2));
+    fo.camRadius=state._focusCamRadius*(1+(1-t2)*1.8);
+    updateFocusHud(tp,t);
+    if (!state.focusMode && state.focusLerp<=0) _finishExitFocus();
+  }
+
+  _renderer.render(state, _frame);
   updateScaleBar();
   updateClock();
   requestAnimationFrame(tick);
@@ -1571,8 +1614,174 @@ document.getElementById('btn-play').addEventListener('click',()=>{
 });
 document.getElementById('btn-fwd').addEventListener('click',()=>{state.speed=Math.min(8,state.speed*2);document.getElementById('speed-val').textContent='×'+state.speed.toFixed(1);});
 document.getElementById('btn-rew').addEventListener('click',()=>{state.speed=Math.max(0.125,state.speed/2);document.getElementById('speed-val').textContent='×'+state.speed.toFixed(1);});
+// ─── Focus Mode ──────────────────────────────────────────────────────────────
+// Double-click any object (planet, tracked NEO, MPC asteroid) — or press F on
+// hover, or the sidebar Focus button — for a cinematic single-object view.
+// ESC / double-click on empty space exits. tick() drives the fade-through-black
+// entry/exit animation via state.focusLerp (~1.2 s, easeInOutCubic).
+
+var _focusSaved = null;        // pan/zoom snapshot restored on exit
+var _focusModelText = null;    // #repr-notice override when a NASA GLB is shown
+var _promoModelText = null;    // same, for the promoted dossier object
+
+function _easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function _refreshReprNotice() {
+  var el = document.getElementById('repr-notice');
+  if (!el) return;
+  var txt = null;
+  if (state.focusTarget) {
+    if (state.focusTarget.type !== 'planet' && state.focusTarget.type !== 'luna') {
+      txt = _focusModelText || '⚠ ARTISTIC REPRESENTATION · ACTUAL SHAPE UNKNOWN';
+    }
+  } else if (_promotedAst) {
+    txt = _promoModelText || '⚠ ARTISTIC REPRESENTATION';
+  }
+  if (txt) { el.textContent = txt; el.style.display = ''; }
+  else el.style.display = 'none';
+}
+
+// Renderer callback: a real NASA shape model replaced the procedural mesh
+_renderer.onModelApplied = function (context, key, noticeText) {
+  if (context === 'focus') _focusModelText = noticeText;
+  else if (context === 'promoted') _promoModelText = noticeText;
+  _refreshReprNotice();
+};
+
+// Closed orbit loop for an MPC asteroid, sampled over one period from now —
+// same solver path as its live position (Kepler + secular), page-side only.
+function buildMPCOrbitPts(ast, segments) {
+  var jd0 = _SIM_EPOCH_JD + state.simTime;
+  var P = 365.25 * Math.pow(ast.a, 1.5);
+  var pts = new Float32Array(segments * 3);
+  for (var k = 0; k < segments; k++) {
+    var p = getMPCPosition(ast, jd0 + (k / segments) * P);
+    pts[k * 3] = p.x; pts[k * 3 + 1] = p.y;
+  }
+  return pts;
+}
+
+function _focusTargetPos(t) {
+  var tg = state.focusTarget;
+  if (tg.type === 'planet') return orbitPos(PLANETS[tg.idx], t);
+  if (tg.type === 'neo')    return orbitPos(NEOS[tg.idx], t);
+  if (tg.type === 'luna') {
+    var ep = orbitPos(PLANETS[2], t), mp = moonPos(t);
+    return { x: ep.x + mp.x, y: ep.y + mp.y };
+  }
+  return getMPCPosition(tg.ast, _SIM_EPOCH_JD + t);
+}
+
+var _fhVel   = document.getElementById('fh-vel');
+var _fhSun   = document.getElementById('fh-sun');
+var _fhEarth = document.getElementById('fh-earth');
+
+function updateFocusHud(pos, t) {
+  var tg = state.focusTarget;
+  if (!tg) return;
+  var r = Math.hypot(pos.x, pos.y);
+  if (tg.type === 'luna') {
+    // Circular presentation orbit: distance and speed are constants
+    _fhVel.textContent   = '1.02 km/s';
+    _fhSun.textContent   = r.toFixed(3) + ' AU';
+    _fhEarth.textContent = '384,400 km';
+    return;
+  }
+  var ep = orbitPos(PLANETS[2], t);
+  var dE_LD = Math.hypot(pos.x - ep.x, pos.y - ep.y) / 0.00257;
+  _fhVel.textContent   = tg.a && r > 0 ? visVivaKms(tg.a, r).toFixed(1) + ' km/s' : '—';
+  _fhSun.textContent   = r.toFixed(3) + ' AU';
+  _fhEarth.textContent = (dE_LD < 100 ? dE_LD.toFixed(2) : dE_LD.toFixed(0)) + ' LD';
+}
+
+function enterFocus(target) {
+  if (state.focusTarget) return;               // already focused / animating out
+  _focusSaved = { panX: state.panX, panY: state.panY, zoom: state.zoom };
+  state.focusMode = true;
+  state.focusLerp = 0;
+  state._focusCamTheta = 0;
+  state._focusCamPhi = Math.PI / 4;
+  state._focusCamRadius = 1.5;
+
+  var desc;
+  if (target.type === 'planet') {
+    var p = PLANETS[target.idx];
+    target.a = p.a; target.name = p.name;
+    target.desig = 'PLANET · a = ' + p.a.toFixed(3) + ' AU';
+    desc = { kind: 'planet', index: target.idx, name: p.name, orbitPts: buildOrbitPts(p, 256) };
+  } else if (target.type === 'neo') {
+    var n = NEOS[target.idx];
+    target.a = n.a; target.name = n.name; target.desig = n.desig;
+    desc = { kind: 'neo', designation: n.id, name: n.name, orbitPts: buildOrbitPts(n, 256) };
+  } else if (target.type === 'luna') {
+    target.a = 1.0; target.name = 'Moon';
+    target.desig = 'EARTH SATELLITE · P = 27.32 D';
+    desc = { kind: 'luna', name: 'Moon' };   // renderer builds the geocentric orbit
+  } else {
+    var ast = target.ast;
+    target.a = ast.a; target.name = ast.name || ast.designation; target.desig = ast.designation;
+    desc = { kind: 'mpc', designation: ast.designation, name: ast.name, orbitPts: buildMPCOrbitPts(ast, 256) };
+  }
+  state.focusTarget = target;
+
+  _focusModelText = null;
+  _renderer.setFocusTarget(desc);              // may fire onModelApplied synchronously
+  // Start the camera at 2.5× the object's visual radius (min 0.4) — always
+  // outside the surface: Earth 0.35, Jupiter 0.7, asteroids/Moon 0.4
+  state._focusCamRadius = Math.max(_renderer.getFocusObjectRadius() * 2.5, 0.4);
+  _refreshReprNotice();
+
+  document.getElementById('fh-name').textContent = target.name;
+  document.getElementById('fh-desig').textContent = target.desig;
+  document.getElementById('focus-hud').classList.add('show');
+  _container.classList.add('focus-active');
+  document.getElementById('tooltip').classList.remove('show');
+  state.hoverId = null; state.hoverPlanet = null; _hoverMPC = null; state.hoverLuna = false;
+}
+
+// Click on the Moon while focused on Earth → the Moon becomes the focus.
+// focusLerp reset to the midpoint replays only the fade-from-black half.
+function _switchFocusToLuna() {
+  var target = { type: 'luna', a: 1.0, name: 'Moon', desig: 'EARTH SATELLITE · P = 27.32 D' };
+  state.focusTarget = target;
+  state.focusLerp = 0.5;
+  state._focusCamRadius = 1.2;
+  _focusModelText = null;
+  _renderer.setFocusTarget({ kind: 'luna', name: 'Moon' });
+  _refreshReprNotice();
+  document.getElementById('fh-name').textContent = target.name;
+  document.getElementById('fh-desig').textContent = target.desig;
+}
+
+function exitFocus() {
+  if (!state.focusMode) return;
+  state.focusMode = false;                     // tick() animates focusLerp → 0
+  if (_focusSaved) {
+    state.panX = _focusSaved.panX; state.panY = _focusSaved.panY; state.zoom = _focusSaved.zoom;
+  }
+  document.getElementById('focus-hud').classList.remove('show');
+}
+
+function _finishExitFocus() {                  // called by tick() once lerp hits 0
+  state.focusTarget = null;
+  _renderer.clearFocusTarget();
+  _focusModelText = null;
+  _refreshReprNotice();
+  _container.classList.remove('focus-active');
+}
+
+document.getElementById('fh-exit').addEventListener('click', exitFocus);
+document.getElementById('focus-btn').addEventListener('click', function (e) {
+  e.preventDefault();
+  var idx = NEOS.findIndex(function (n) { return n.id === state.selectedId; });
+  if (idx >= 0) enterFocus({ type: 'neo', idx: idx });
+});
+
 // ─── Drag-pan state ──────────────────────────────────────────────────────────
 let _panDragging = false, _panSX = 0, _panSY = 0, _panX0 = 0, _panY0 = 0;
+let _panLX = 0, _panLY = 0;   // last mouse position (focus-mode camera orbit)
 
 cv.style.cursor = 'grab';
 
@@ -1580,6 +1789,7 @@ cv.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
   _panDragging = true;
   _panSX = e.clientX; _panSY = e.clientY;
+  _panLX = e.clientX; _panLY = e.clientY;
   _panX0 = state.panX; _panY0 = state.panY;
   cv.style.cursor = 'grabbing';
 });
@@ -1588,10 +1798,53 @@ cv.addEventListener('mouseup', () => {
   if (_panDragging) { _panDragging = false; cv.style.cursor = 'grab'; }
 });
 
-cv.addEventListener('dblclick', () => { state.panX = 0; state.panY = 0; });
+cv.addEventListener('dblclick', e => {
+  if (state.focusTarget) {
+    // Exit only when the double-click lands on empty space — the focused
+    // object always projects to the screen centre, so a centre hit is "on it".
+    const r = cv.getBoundingClientRect();
+    const dx = (e.clientX - r.left) - r.width / 2;
+    const dy = (e.clientY - r.top) - r.height / 2;
+    // A double-click on the orbiting Moon is a re-focus (handled by click), not an exit
+    const fmp = _renderer.getFocusMoonScreenPos();
+    if (fmp && Math.hypot((e.clientX - r.left) - fmp.x, (e.clientY - r.top) - fmp.y) < Math.max(12, fmp.r + 6)) return;
+    const objPx = (_renderer.getFocusObjectRadius() / (state._focusCamRadius * Math.tan(25 * Math.PI / 180))) * (r.height / 2);
+    if (Math.hypot(dx, dy) > Math.max(40, objPx)) exitFocus();
+    return;
+  }
+  if (state.hoverId) {
+    const idx = NEOS.findIndex(n => n.id === state.hoverId);
+    if (idx >= 0) enterFocus({ type: 'neo', idx });
+  } else if (state.hoverLuna) {
+    enterFocus({ type: 'luna' });
+  } else if (state.hoverPlanet) {
+    const idx = PLANETS.findIndex(p => p.key === state.hoverPlanet);
+    if (idx >= 0) enterFocus({ type: 'planet', idx });
+  } else if (state.showMPC && _mpcLoaded) {
+    // Re-run the spatial-hash hit test: the first click of a double-click on
+    // an MPC asteroid opens the dossier, which clears _hoverMPC.
+    const rc = cv.getBoundingClientRect();
+    const hit = _mpcHit(e.clientX - rc.left, e.clientY - rc.top);
+    if (hit) enterFocus({ type: 'mpc', ast: hit.ast });
+    else { state.panX = 0; state.panY = 0; }
+  } else {
+    state.panX = 0; state.panY = 0;            // original behaviour: recentre
+  }
+});
 
 cv.addEventListener('mousemove',e=>{
   const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  if (state.focusTarget) {
+    // Focus mode: drag orbits the camera around the object (spherical coords)
+    if (_panDragging) {
+      state._focusCamTheta += (e.clientX - _panLX) * 0.008;
+      state._focusCamPhi = Math.min(Math.PI - 0.1, Math.max(0.1,
+        state._focusCamPhi + (e.clientY - _panLY) * 0.008));
+    }
+    _panLX = e.clientX; _panLY = e.clientY;
+    return;
+  }
+  _panLX = e.clientX; _panLY = e.clientY;
   if (_panDragging) {
     state.panX = _panX0 + (e.clientX - _panSX);
     state.panY = _panY0 + (e.clientY - _panSY);
@@ -1607,6 +1860,17 @@ cv.addEventListener('mousemove',e=>{
       if(d<bestPD){bestPD=d;bestPlanet=p;}
     }
   }
+  // Moon hover — only once it is visually clear of Earth's disc (sep > 3px),
+  // and only when the cursor is closer to the Moon than to any planet
+  state.hoverLuna=false;
+  let lunaHit=false;
+  if(!best && state.showPlanets && state.planetToggles.earth){
+    const luna=_renderer.getLunaScreenPos(state);
+    if(luna && luna.sep>3){
+      const dL=Math.hypot(x-luna.x,y-luna.y);
+      if(dL<luna.r+8 && (!bestPlanet||dL<bestPD)) lunaHit=true;
+    }
+  }
   const tt=document.getElementById('tooltip');
   if(best){
     state.hoverId=best.id; state.hoverPlanet=null; _hoverMPC=null;
@@ -1615,6 +1879,14 @@ cv.addEventListener('mousemove',e=>{
     document.getElementById('tt-desig').textContent=best.desig;
     document.getElementById('tt-d').textContent=`${best.nextLD} LD · ${best.nextKm} km`;
     document.getElementById('tt-v').textContent=`${best.vel} km/s`;
+    cv.style.cursor='pointer';
+  } else if(lunaHit){
+    state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null; state.hoverLuna=true;
+    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
+    document.getElementById('tt-name').textContent='Moon';
+    document.getElementById('tt-desig').textContent='EARTH SATELLITE · P = 27.32 D';
+    document.getElementById('tt-d').textContent='1.00 LD · 384,400 km';
+    document.getElementById('tt-v').textContent='1.02 km/s';
     cv.style.cursor='pointer';
   } else if(bestPlanet){
     state.hoverId=null; state.hoverPlanet=bestPlanet.key; _hoverMPC=null;
@@ -1661,11 +1933,24 @@ cv.addEventListener('mousemove',e=>{
 
 cv.addEventListener('mouseleave',()=>{
   _panDragging=false;
-  state.hoverId=null; state.hoverPlanet=null;
+  state.hoverId=null; state.hoverPlanet=null; state.hoverLuna=false;
   document.getElementById('tooltip').classList.remove('show');
   cv.style.cursor='grab';
 });
-cv.addEventListener('click',()=>{
+cv.addEventListener('click',e=>{
+  if(state.focusTarget){
+    // Focus mode: the only live click target is the Moon while Earth is focused
+    if(state.focusMode && state.focusLerp>=0.5   // focus scene actually on screen
+       && state.focusTarget.type==='planet' && PLANETS[state.focusTarget.idx].key==='earth'
+       && Math.hypot(e.clientX-_panSX,e.clientY-_panSY)<4){   // ignore drag-release
+      const rc=cv.getBoundingClientRect();
+      const mp=_renderer.getFocusMoonScreenPos();
+      if(mp && Math.hypot((e.clientX-rc.left)-mp.x,(e.clientY-rc.top)-mp.y)<Math.max(12,mp.r+6)){
+        _switchFocusToLuna();
+      }
+    }
+    return;
+  }
   if(state.hoverId){
     // Close dossier when clicking a tracked NEO
     closeMPCDossier();
@@ -1675,8 +1960,31 @@ cv.addEventListener('click',()=>{
     openMPCDossier(_hoverMPC);
   }
 });
-cv.addEventListener('wheel',e=>{e.preventDefault();state.zoom=Math.max(0.035,Math.min(15,state.zoom*(1-Math.sign(e.deltaY)*0.12)));document.getElementById('scale-val').textContent=`1 AU = ${(state.pxPerAU*state.zoom).toFixed(0)} px`;},{passive:false});
-document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(e.key==='/'){{e.preventDefault();document.getElementById('search-input').focus();}}if(e.key===' '){e.preventDefault();document.getElementById('btn-play').click();}});
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  if (state.focusTarget) {
+    // Focus mode: wheel moves the camera along its orbit radius — floor it
+    // just above the focused object's surface (big planets are >1 unit)
+    state._focusCamRadius = Math.max(Math.max(0.15, _renderer.getFocusObjectRadius() * 1.15), Math.min(8,
+      state._focusCamRadius * (1 + Math.sign(e.deltaY) * 0.12)));
+    return;
+  }
+  state.zoom=Math.max(0.035,Math.min(15,state.zoom*(1-Math.sign(e.deltaY)*0.12)));
+  document.getElementById('scale-val').textContent=`1 AU = ${(state.pxPerAU*state.zoom).toFixed(0)} px`;
+},{passive:false});
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.key==='Escape'&&state.focusMode){exitFocus();return;}
+  if((e.key==='f'||e.key==='F')&&!state.focusTarget){
+    if(state.hoverId){const idx=NEOS.findIndex(n=>n.id===state.hoverId);if(idx>=0)enterFocus({type:'neo',idx});}
+    else if(state.hoverLuna){enterFocus({type:'luna'});}
+    else if(state.hoverPlanet){const idx=PLANETS.findIndex(p=>p.key===state.hoverPlanet);if(idx>=0)enterFocus({type:'planet',idx});}
+    else if(_hoverMPC){enterFocus({type:'mpc',ast:_hoverMPC.ast});}
+    return;
+  }
+  if(e.key==='/'){e.preventDefault();document.getElementById('search-input').focus();}
+  if(e.key===' '){e.preventDefault();document.getElementById('btn-play').click();}
+});
 
 // ─── Return to Live button ─────────────────────────────────────────────────
 // J2000.0 = 2000-Jan-01 12:00:00 UTC
@@ -1819,6 +2127,24 @@ function _updateSheetSummary(n) {
 
   cv.addEventListener('touchmove', function (e) {
     e.preventDefault();
+    if (state.focusTarget) {
+      // Focus mode: pinch = camera radius, single-finger drag = orbit
+      if (e.touches.length === 2 && pinchDist !== null) {
+        var dF = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        state._focusCamRadius = Math.max(Math.max(0.15, _renderer.getFocusObjectRadius() * 1.15), Math.min(8,
+          state._focusCamRadius * (pinchDist / dF)));
+        pinchDist = dF;
+      } else if (e.touches.length === 1 && panStart) {
+        state._focusCamTheta += (e.touches[0].clientX - panStart.x) * 0.008;
+        state._focusCamPhi = Math.min(Math.PI - 0.1, Math.max(0.1,
+          state._focusCamPhi + (e.touches[0].clientY - panStart.y) * 0.008));
+        panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+      return;
+    }
     if (e.touches.length === 2 && pinchDist !== null) {
       var d = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
