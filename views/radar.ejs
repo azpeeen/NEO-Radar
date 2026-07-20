@@ -420,10 +420,11 @@
   #focus-hud .fh-exit { font-size: 9.5px; letter-spacing: 0.16em; color: var(--ink-3); cursor: pointer; pointer-events: auto; transition: color 160ms; }
   #focus-hud .fh-exit:hover { color: var(--ink); }
   #focus-hud .fh-exit .kbd-esc { display: inline-block; padding: 1px 5px; border: 1px solid var(--line-strong); border-radius: 4px; margin-right: 6px; color: var(--ink-2); }
-  /* Clean canvas while focused: hide chrome that only makes sense in map view */
+  /* Clean canvas while focused: hide chrome that only makes sense in map view
+     (!important beats #dyn-scale-bar's inline display:flex) */
   .canvas-area.focus-active .legend,
   .canvas-area.focus-active .scale-bar,
-  .canvas-area.focus-active .corner-overlay { display: none; }
+  .canvas-area.focus-active .corner-overlay { display: none !important; }
 </style>
 
 <div class="radar-shell">
@@ -838,16 +839,22 @@ const state = {
     ? _initSimTime
     : (Date.now() - (Date.UTC(2000, 0, 1, 12, 0, 0) + 9643 * 86400000)) / 86400000,
   jupiter: true, saturn: true, uncertainty: true, trails: true, inner: false,
-  pxPerAU: 120, zoom: 1.0, panX: 0, panY: 0,
+  // ── Free-orbit perspective camera (NASA Eyes style) ──
+  // The renderer derives the camera position by spherical coordinates around
+  // the target; the ecliptic plane is world XY and +z is "up".
+  cam: {
+    tx: 0, ty: 0, tz: 0,   // target: point the camera looks at (AU)
+    dist: 7.0,             // camera→target distance (AU)
+    theta: 0,              // azimuth, rad (rotation about the ecliptic normal)
+    phi: 1.20,             // elevation, rad (~69° — tilted near-top-down, Eyes-like)
+  },
   showPlanets: true, showOrbits: true, showMPC: true,
   planetToggles: { mercury:false, venus:false, earth:true, mars:false, jupiter:true, saturn:true, uranus:true, neptune:true },
-  // ── Focus mode ──
+  // ── Focus mode — cinematic camera follow on the MAIN scene ──
   focusMode: false,        // true while focused (exit animation runs after → false)
-  focusTarget: null,       // { type:'neo'|'planet'|'mpc', idx?|ast?, name, desig, a }
+  focusTarget: null,       // { type:'neo'|'planet'|'luna'|'mpc', idx?|ast?, name, desig, a }
   focusLerp: 0,            // 0→1 entry animation progress (eased in tick)
-  _focusCamTheta: 0,       // spherical camera orbit around the focused object
-  _focusCamPhi: Math.PI / 4,
-  _focusCamRadius: 1.5,    // AU
+  _camBeforeFocus: null,   // cam snapshot (6 numbers) restored on exit
 };
 
 function solveKepler(M, e) {
@@ -858,8 +865,18 @@ function solveKepler(M, e) {
 function orbitPos(o, t) {
   const period=Math.pow(o.a,1.5), M=((t/365.25)/period)*2*Math.PI+(o.phase||0), E=solveKepler(M,o.e);
   const x=o.a*(Math.cos(E)-o.e), y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E);
+  if (o.i) {
+    // Full orbital→ecliptic rotation (ω, i, Ω) — inclination becomes real z
+    const D2R=Math.PI/180, W=(o.w||0)*D2R, N=(o.om||0)*D2R, I=o.i*D2R;
+    const cN=Math.cos(N), sN=Math.sin(N), cW=Math.cos(W), sW=Math.sin(W), cI=Math.cos(I), sI=Math.sin(I);
+    return {
+      x: (cN*cW - sN*sW*cI)*x + (-cN*sW - sN*cW*cI)*y,
+      y: (sN*cW + cN*sW*cI)*x + (-sN*sW + cN*cW*cI)*y,
+      z: (sW*sI)*x + (cW*sI)*y,
+    };
+  }
   const ang=((o.w||0)+(o.om||0))*Math.PI/180;
-  return { x:x*Math.cos(ang)-y*Math.sin(ang), y:x*Math.sin(ang)+y*Math.cos(ang) };
+  return { x:x*Math.cos(ang)-y*Math.sin(ang), y:x*Math.sin(ang)+y*Math.cos(ang), z:0 };
 }
 
 // ─── Moon — visual-only circular orbit ───────────────────────────────────────
@@ -870,7 +887,14 @@ const MOON_A      = 0.00257;                                     // AU (384,400 
 const MOON_PHASE0 = ((9643 % MOON_PERIOD) / MOON_PERIOD) * 2 * Math.PI; // at sim epoch
 function moonPos(simTime) {                                      // geocentric, AU
   var angle = MOON_PHASE0 + (simTime / MOON_PERIOD) * 2 * Math.PI;
-  return { x: MOON_A * Math.cos(angle), y: MOON_A * Math.sin(angle) };
+  // MOON_INCL (5.145° vs ecliptic) is declared by renderer3d.js — the tilt
+  // matches the renderer's inclined orbit circle exactly (node along +x)
+  var sa = Math.sin(angle);
+  return {
+    x: MOON_A * Math.cos(angle),
+    y: MOON_A * sa * Math.cos(MOON_INCL),
+    z: MOON_A * sa * Math.sin(MOON_INCL),
+  };
 }
 
 // ─── MPC asteroid layer (Layer 2 — Keplerian + Laplace-Lagrange secular) ─────
@@ -950,10 +974,14 @@ function _mpcHit(mx, my) {
 }
 
 // ─── Promoted object state (Layer 3 — N-body on click) ───────────────────────
-var _promotedAst     = null;  // the clicked MPC asteroid
+var _promotedAst     = null;  // the clicked MPC asteroid (dossier open)
 var _promotedResult  = null;  // { trajectory, closeApproach, uncertainty }
 var _promotedLoading = false;
 var _hoverMPC        = null;  // currently hovered MPC entry { ast, sx, sy }
+// Single shared 3D-mesh slot in the renderer: serves BOTH the dossier's
+// promoted asteroid and the focused NEO/MPC (Part 6 — no separate scene).
+var _promoKey        = null;  // designation currently promoted in the renderer
+var _promoAstRef     = null;  // MPC ast whose cloud point is parked off-world
 
 async function loadMPCAsteroids() {
   try {
@@ -1008,14 +1036,15 @@ function getMPCPosition(ast, currentJD) {
 
   var cosN = Math.cos(node), sinN = Math.sin(node);
   var cosW = Math.cos(w),    sinW = Math.sin(w);
-  var cosI = Math.cos(i);
+  var cosI = Math.cos(i),    sinI = Math.sin(i);
 
   var x = (cosN * cosW - sinN * sinW * cosI) * x_orb
          + (-cosN * sinW - sinN * cosW * cosI) * y_orb;
   var y = (sinN * cosW + cosN * sinW * cosI) * x_orb
          + (-sinN * sinW + cosN * cosW * cosI) * y_orb;
+  var z = (sinW * sinI) * x_orb + (cosW * sinI) * y_orb;
 
-  return { x, y };
+  return { x, y, z };
 }
 
 // ─── MPC point-cloud bridge ──────────────────────────────────────────────────
@@ -1051,16 +1080,17 @@ function updateMPCFrame() {
     const pos = getMPCPosition(ast, currentJD);
     const i3  = mi * 3;
 
-    // Promoted asteroid is rendered as its own mesh — park its point off-world
-    if (_promotedAst && ast === _promotedAst) {
-      _mpcPositions[i3] = 1e6; _mpcPositions[i3+1] = 1e6;
+    // Promoted/focused asteroid is rendered as its own mesh — park its point
+    if (_promoAstRef && ast === _promoAstRef) {
+      _mpcPositions[i3] = 1e6; _mpcPositions[i3+1] = 1e6; _mpcPositions[i3+2] = 1e6;
     } else {
-      _mpcPositions[i3] = pos.x; _mpcPositions[i3+1] = pos.y;
+      _mpcPositions[i3] = pos.x; _mpcPositions[i3+1] = pos.y; _mpcPositions[i3+2] = pos.z;
     }
 
-    // Viewport culling now only matters for hit detection — GPU clips the rest
-    const s = ws(pos.x, pos.y);
-    if (s.x < -4 || s.x > W + 4 || s.y < -4 || s.y > H + 4) continue;
+    // Viewport culling now only matters for hit detection — GPU clips the
+    // rest (ws() null = behind the camera)
+    const s = ws(pos.x, pos.y, pos.z);
+    if (!s || s.x < -4 || s.x > W + 4 || s.y < -4 || s.y > H + 4) continue;
 
     _mpcVisible.push({ ast, sx: s.x, sy: s.y });
   }
@@ -1231,11 +1261,11 @@ async function openMPCDossier(entry) {
   _promotedResult = null;
   _hoverMPC       = null;
 
-  // 3D mesh — NASA shape model when the designation has one, procedural
-  // otherwise. promote() fires onModelApplied when a real GLB lands and the
-  // #repr-notice text upgrades from "artistic" to the mission credit.
-  _promoModelText = null;
-  _renderer.promote(ast.designation, ast.name);
+  // 3D mesh in the MAIN scene — NASA shape model when the designation has
+  // one, procedural otherwise, plus its 3D orbit line. promote() fires
+  // onModelApplied when a real GLB lands and the #repr-notice text upgrades
+  // from "artistic" to the mission credit.
+  _syncAsteroidMesh();
   _refreshReprNotice();
 
   const dossier = document.getElementById('mpc-dossier');
@@ -1292,8 +1322,7 @@ async function openMPCDossier(entry) {
 function closeMPCDossier() {
   _promotedAst    = null;
   _promotedResult = null;
-  _renderer.demote();  // disposes mesh + trajectory geometry/materials
-  _promoModelText = null;
+  _syncAsteroidMesh();  // demotes (with dispose) unless the focus still owns the mesh
   _refreshReprNotice();
   document.getElementById('mpc-dossier').classList.remove('open');
   const hudLine = document.getElementById('hud-promoted-line');
@@ -1307,13 +1336,26 @@ document.getElementById('dos-close').addEventListener('click', closeMPCDossier);
 // src/renderer/ receives flat vertex arrays only, never solves anything).
 function buildOrbitPts(o, segments) {
   const pts = new Float32Array(segments * 3);
-  const ang = ((o.w||0)+(o.om||0))*Math.PI/180, ca = Math.cos(ang), sa = Math.sin(ang);
+  // Same rotation as orbitPos(): full 3D (ω, i, Ω) when the object has an
+  // inclination — orbit polylines become real 3D loops out of the ecliptic
+  const D2R = Math.PI/180;
+  const hasI = !!o.i;
+  const W = (o.w||0)*D2R, N = (o.om||0)*D2R, I = (o.i||0)*D2R;
+  const cN = Math.cos(N), sN = Math.sin(N), cW = Math.cos(W), sW = Math.sin(W);
+  const cI = Math.cos(I), sI = Math.sin(I);
+  const ang = ((o.w||0)+(o.om||0))*D2R, ca = Math.cos(ang), sa = Math.sin(ang);
   for (let k = 0; k < segments; k++) {
     const M = (k/segments)*2*Math.PI + (o.phase||0);
     const E = solveKepler(M, o.e);
     const x = o.a*(Math.cos(E)-o.e), y = o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E);
-    pts[k*3]   = x*ca - y*sa;
-    pts[k*3+1] = x*sa + y*ca;
+    if (hasI) {
+      pts[k*3]   = (cN*cW - sN*sW*cI)*x + (-cN*sW - sN*cW*cI)*y;
+      pts[k*3+1] = (sN*cW + cN*sW*cI)*x + (-sN*sW + cN*cW*cI)*y;
+      pts[k*3+2] = (sW*sI)*x + (cW*sI)*y;
+    } else {
+      pts[k*3]   = x*ca - y*sa;
+      pts[k*3+1] = x*sa + y*ca;
+    }
   }
   return pts;
 }
@@ -1333,7 +1375,26 @@ function resize() {
   _renderer.resize();
 }
 resize(); window.addEventListener('resize', resize);
-function ws(x,y){return{x:W/2+state.panX+x*state.pxPerAU*state.zoom, y:H/2+state.panY+y*state.pxPerAU*state.zoom};}
+
+// ─── World → screen through the renderer's view-projection matrix ────────────
+// _vp is the SAME Float32Array the renderer refreshes every render() — no
+// copies, no callbacks. Returns null when the point is behind the camera:
+// every call site must tolerate that.
+const _vp = _renderer.getVPMatrix();
+const FOV_RAD = 45 * Math.PI / 180;
+function ws(x, y, z) {
+  z = z || 0;
+  const e = _vp;                       // column-major (Three.js convention)
+  const cw = e[3]*x + e[7]*y + e[11]*z + e[15];
+  if (cw <= 0) return null;            // behind the camera
+  const cx = (e[0]*x + e[4]*y + e[8]*z  + e[12]) / cw;
+  const cy = (e[1]*x + e[5]*y + e[9]*z  + e[13]) / cw;
+  return { x: (cx + 1) * 0.5 * W, y: (1 - cy) * 0.5 * H, w: cw };
+}
+// CSS px per AU measured at the camera-target plane (perspective: varies with dist)
+function pxPerAU() {
+  return H / (2 * state.cam.dist * Math.tan(FOV_RAD / 2));
+}
 
 function isActiveConjunctionPlanet(key, t) {
   if (!ALIGNMENTS || !ALIGNMENTS.length) return false;
@@ -1362,15 +1423,28 @@ function computeActiveConjunctions(t) {
   return out;
 }
 
-// Uncertainty ribbon in WORLD coordinates — same math as before, fixed-size
-// arrays so the renderer can update one BufferGeometry with zero allocation
+// Uncertainty ribbon in WORLD coordinates — fixed-size stride-3 arrays so the
+// renderer can update one BufferGeometry with zero allocation. Sampled through
+// orbitPos() so the ribbon carries the same real z as the NEO it belongs to.
 const _CONE_N = 101;
-const _coneUpper = new Float32Array(_CONE_N * 2);
-const _coneLower = new Float32Array(_CONE_N * 2);
+const _coneUpper = new Float32Array(_CONE_N * 3);
+const _coneLower = new Float32Array(_CONE_N * 3);
 function computeUncertaintyCone(o, t) {
   const pts=[];
-  for(let k=0;k<_CONE_N;k++){const dt=(k-50)*8,tt=t+dt,period=Math.pow(o.a,1.5),Mt=((tt/365.25)/period)*2*Math.PI+(o.phase||0),E=solveKepler(Mt,o.e),x=o.a*(Math.cos(E)-o.e),y=o.a*Math.sqrt(1-o.e*o.e)*Math.sin(E),ang=((o.w||0)+(o.om||0))*Math.PI/180,wx=x*Math.cos(ang)-y*Math.sin(ang),wy=x*Math.sin(ang)+y*Math.cos(ang),jup=orbitPos(PLANETS[4],tt),dJ=Math.hypot(wx-jup.x,wy-jup.y);pts.push({x:wx,y:wy,w:0.005+0.05/(dJ*dJ+0.4)});}
-  for(let k=0;k<pts.length;k++){const p=pts[k],next=pts[Math.min(k+1,pts.length-1)],dx=next.x-p.x,dy=next.y-p.y,len=Math.hypot(dx,dy)||1e-9,nx=-dy/len,ny=dx/len;_coneUpper[k*2]=p.x+nx*p.w;_coneUpper[k*2+1]=p.y+ny*p.w;_coneLower[k*2]=p.x-nx*p.w;_coneLower[k*2+1]=p.y-ny*p.w;}
+  for(let k=0;k<_CONE_N;k++){
+    const tt=t+(k-50)*8;
+    const p=orbitPos(o,tt);
+    const jup=orbitPos(PLANETS[4],tt);
+    const dJ=Math.hypot(p.x-jup.x,p.y-jup.y);
+    pts.push({x:p.x,y:p.y,z:p.z,w:0.005+0.05/(dJ*dJ+0.4)});
+  }
+  for(let k=0;k<pts.length;k++){
+    const p=pts[k],next=pts[Math.min(k+1,pts.length-1)];
+    const dx=next.x-p.x,dy=next.y-p.y,len=Math.hypot(dx,dy)||1e-9;
+    const nx=-dy/len,ny=dx/len;                      // in-plane normal
+    _coneUpper[k*3]=p.x+nx*p.w;_coneUpper[k*3+1]=p.y+ny*p.w;_coneUpper[k*3+2]=p.z;
+    _coneLower[k*3]=p.x-nx*p.w;_coneLower[k*3+1]=p.y-ny*p.w;_coneLower[k*3+2]=p.z;
+  }
 }
 
 // Jupiter Δv vector endpoints in WORLD coordinates
@@ -1379,10 +1453,12 @@ function computeJupiterVector(t, f) {
   if (!state.jupiter) return;
   const sel = NEOS.find(n => n.id === state.selectedId); if (!sel) return;
   const ap = orbitPos(sel, t), jp = orbitPos(PLANETS[4], t);
-  const dx = jp.x - ap.x, dy = jp.y - ap.y, d = Math.hypot(dx, dy);
+  const dx = jp.x - ap.x, dy = jp.y - ap.y, dz = (jp.z||0) - (ap.z||0);
+  const d = Math.hypot(dx, dy);
   if (d > 6) return;
   f.active = true;
-  f.ax = ap.x; f.ay = ap.y; f.bx = ap.x + dx*0.06; f.by = ap.y + dy*0.06;
+  f.ax = ap.x; f.ay = ap.y; f.az = ap.z||0;
+  f.bx = ap.x + dx*0.06; f.by = ap.y + dy*0.06; f.bz = (ap.z||0) + dz*0.06;
 }
 
 const _J2000_RAF = Date.UTC(2000, 0, 1, 12, 0, 0);
@@ -1390,18 +1466,17 @@ const _T_SIM_RAF = _J2000_RAF + 9643 * 86400000; // sim epoch = 2026-05-27
 
 // Per-frame flat data handed to the renderer (preallocated — no GC churn)
 const _frame = {
+  cam: { tx:0, ty:0, tz:0, dist:7, theta:0, phi:1.20 },
   planets: PLANETS.map(() => ({ x:0, y:0, visible:false, conj:false })),
-  neos:    NEOS.map(() => ({ x:0, y:0 })),
+  neos:    NEOS.map(() => ({ x:0, y:0, z:0 })),
   selIdx: -1, hovIdx: -1,
   cone: { active:false, risky:false, count:_CONE_N, upper:_coneUpper, lower:_coneLower },
-  jup:  { active:false, ax:0, ay:0, bx:0, by:0 },
+  jup:  { active:false, ax:0, ay:0, az:0, bx:0, by:0, bz:0 },
   conjs: [],
   mpcDirty: false,
   hoverMPC: null,
-  luna: { x:0, y:0, visible:false },
-  promoted: { active:false, x:0, y:0, ex:0, ey:0, distLD:'' },
-  focus: { active:false, shown:false, x:0, y:0, camTheta:0, camPhi:Math.PI/4, camRadius:1.5 },
-  focusFade: 0,
+  luna: { x:0, y:0, z:0, visible:false },
+  promoted: { active:false, x:0, y:0, z:0, ex:0, ey:0, distLD:'', radius:0 },
 };
 
 let last=performance.now();
@@ -1430,13 +1505,13 @@ function tick(now) {
   {
     const ef=_frame.planets[2], lf=_frame.luna;
     lf.visible = ef.visible;
-    if (ef.visible) { const mp=moonPos(t); lf.x=ef.x+mp.x; lf.y=ef.y+mp.y; }
+    if (ef.visible) { const mp=moonPos(t); lf.x=ef.x+mp.x; lf.y=ef.y+mp.y; lf.z=mp.z; }
   }
 
   _frame.selIdx=-1; _frame.hovIdx=-1;
   for (let i=0;i<NEOS.length;i++) {
     const n=NEOS[i], pos=orbitPos(n,t), f=_frame.neos[i];
-    f.x=pos.x; f.y=pos.y;
+    f.x=pos.x; f.y=pos.y; f.z=pos.z;
     if (n.id===state.selectedId) _frame.selIdx=i;
     if (n.id===state.hoverId)    _frame.hovIdx=i;
   }
@@ -1454,38 +1529,101 @@ function tick(now) {
   _frame.mpcDirty = updateMPCFrame();
   _frame.hoverMPC = _hoverMPC;
 
-  if (_promotedAst) {
-    const currentJD=_SIM_EPOCH_JD+t;
-    const pos=getMPCPosition(_promotedAst,currentJD);
-    const ep=orbitPos(PLANETS[2],t);
+  // ── Promoted/focused asteroid mesh: position + physical radius ──
+  {
     const pr=_frame.promoted;
-    pr.active=true; pr.x=pos.x; pr.y=pos.y; pr.ex=ep.x; pr.ey=ep.y;
-    pr.distLD=(Math.hypot(pos.x-ep.x,pos.y-ep.y)/0.00257).toFixed(2);
-  } else {
-    _frame.promoted.active=false;
+    const tg=state.focusTarget;
+    let sx=0, sy=0, sz=0, srcRadius=0, have=false;
+    if (tg && tg.type==='neo') {
+      const f=_frame.neos[tg.idx];
+      sx=f.x; sy=f.y; sz=f.z; srcRadius=_focusRadiusAU; have=true;
+    } else if (tg && tg.type==='mpc') {
+      const pos=getMPCPosition(tg.ast,_SIM_EPOCH_JD+t);
+      sx=pos.x; sy=pos.y; sz=pos.z; srcRadius=_astRadiusAU(tg.ast); have=true;
+    } else if (_promotedAst) {
+      const pos=getMPCPosition(_promotedAst,_SIM_EPOCH_JD+t);
+      sx=pos.x; sy=pos.y; sz=pos.z; srcRadius=_astRadiusAU(_promotedAst); have=true;
+    }
+    if (have && _promoKey) {
+      const ep=orbitPos(PLANETS[2],t);
+      pr.active=true; pr.x=sx; pr.y=sy; pr.z=sz; pr.ex=ep.x; pr.ey=ep.y;
+      pr.radius=srcRadius;
+      pr.distLD=(Math.hypot(sx-ep.x,sy-ep.y,sz)/0.00257).toFixed(2);
+    } else {
+      pr.active=false;
+    }
   }
 
-  // ── Focus mode: animation progress + per-frame target data ──
-  const fo=_frame.focus;
-  fo.active=false; fo.shown=false; _frame.focusFade=0;
-  if (state.focusTarget) {
-    // focusMode true → lerp toward 1 (enter); false → back to 0 (exit)
-    const dirF=state.focusMode?1:-1;
-    state.focusLerp=Math.min(1,Math.max(0,state.focusLerp+dirF*dt/1.2));
-    const eF=_easeInOutCubic(state.focusLerp);
-    _frame.focusFade=1-Math.abs(eF*2-1);           // black at the midpoint
-    fo.active=true;
-    fo.shown=eF>=0.5;                              // second half renders the focus scene
-    const tp=_focusTargetPos(t);
-    fo.x=tp.x; fo.y=tp.y;
-    fo.camTheta=state._focusCamTheta;
-    fo.camPhi=state._focusCamPhi;
-    // Dolly-in on entry / dolly-out on exit, on top of the user's zoom radius
-    const t2=Math.min(1,Math.max(0,(eF-0.5)*2));
-    fo.camRadius=state._focusCamRadius*(1+(1-t2)*1.8);
-    updateFocusHud(tp,t);
-    if (!state.focusMode && state.focusLerp<=0) _finishExitFocus();
+  // ── Camera: drag inertia decay (the Eyes "feel") ──
+  if (!_dragMode && (_camVTheta !== 0 || _camVPhi !== 0)) {
+    state.cam.theta += _camVTheta;
+    state.cam.phi = Math.min(1.48, Math.max(-1.48, state.cam.phi + _camVPhi));
+    _camVTheta *= 0.90; _camVPhi *= 0.90;
+    if (Math.abs(_camVTheta) < 1e-5) _camVTheta = 0;
+    if (Math.abs(_camVPhi) < 1e-5) _camVPhi = 0;
   }
+
+  // ── Focus mode: cinematic dolly + follow, all on the main camera ──
+  if (state.focusTarget) {
+    const tg = state.focusTarget;
+    const tp = _focusTargetPos(t);
+
+    // Focused planet/Moon may have its toggle off — force its frame slot on
+    if (tg.type === 'planet' || tg.type === 'luna') {
+      const idx = tg.type === 'planet' ? tg.idx : 2;
+      const pf = _frame.planets[idx];
+      if (!pf.visible) {
+        const pp = orbitPos(PLANETS[idx], t);
+        pf.x = pp.x; pf.y = pp.y; pf.visible = true; pf.conj = false;
+      }
+      if (tg.type === 'luna' && !_frame.luna.visible) {
+        const mp = moonPos(t);
+        _frame.luna.x = pf.x + mp.x; _frame.luna.y = pf.y + mp.y;
+        _frame.luna.z = mp.z; _frame.luna.visible = true;
+      }
+    }
+
+    if (_exitAnim) {
+      // Exit: glide back to the camera saved on entry (~1.0 s, same curve)
+      _exitAnim.t = Math.min(1, _exitAnim.t + dt / 1.0);
+      const e2 = _easeInOutCubic(_exitAnim.t);
+      const A = _exitAnim.from, B = state._camBeforeFocus;
+      state.cam.tx = A.tx + (B.tx - A.tx) * e2;
+      state.cam.ty = A.ty + (B.ty - A.ty) * e2;
+      state.cam.tz = A.tz + (B.tz - A.tz) * e2;
+      state.cam.dist = Math.exp(Math.log(A.dist) + (Math.log(B.dist) - Math.log(A.dist)) * e2);
+      state.cam.theta = A.theta + (B.theta - A.theta) * e2;
+      state.cam.phi = A.phi + (B.phi - A.phi) * e2;
+      if (_exitAnim.t >= 1) _finishExitFocus();
+    } else if (!_focusFollow) {
+      // Entry: ~1.4 s dolly. The target lerps against the object's CURRENT
+      // position every frame (it keeps moving on its orbit), and dist lerps
+      // in log space — the only dolly that reads smooth across astronomical
+      // scales. theta/phi stay untouched: the user never loses orientation.
+      state.focusLerp = Math.min(1, state.focusLerp + dt / 1.4);
+      const eF = _easeInOutCubic(state.focusLerp);
+      const S = _focusStartCam;
+      state.cam.tx = S.tx + (tp.x - S.tx) * eF;
+      state.cam.ty = S.ty + (tp.y - S.ty) * eF;
+      state.cam.tz = S.tz + ((tp.z || 0) - S.tz) * eF;
+      state.cam.dist = Math.exp(Math.log(S.dist) + (Math.log(_focusDistTarget) - Math.log(S.dist)) * eF);
+      if (state.focusLerp >= 1) _focusFollow = true;
+      updateFocusHud(tp, t);
+    } else {
+      // Follow: target glued to the moving object; the user orbits/dollies
+      // around it freely (dolly floor = just above the surface)
+      state.cam.tx = tp.x; state.cam.ty = tp.y; state.cam.tz = tp.z || 0;
+      state.cam.dist = Math.max(_focusMinDist, state.cam.dist);
+      // Auto-rotate (Eyes signature): slow orbit after 5 s without input
+      if (now - _lastInteractT > 5000) state.cam.theta += 0.0006;
+      updateFocusHud(tp, t);
+    }
+  }
+
+  // Camera → frame: flat copy of the 6 numbers (the renderer never decides
+  // camera state on its own)
+  _frame.cam.tx = state.cam.tx; _frame.cam.ty = state.cam.ty; _frame.cam.tz = state.cam.tz;
+  _frame.cam.dist = state.cam.dist; _frame.cam.theta = state.cam.theta; _frame.cam.phi = state.cam.phi;
 
   _renderer.render(state, _frame);
   updateScaleBar();
@@ -1518,26 +1656,33 @@ function updateClock() {
     p.year + '·' + p.month + '·' + p.day + ' ' + p.hour + ':' + p.minute + ' ' + tzLabel;
 }
 function updateScaleBar() {
-  const ROUND = [0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100];
-  const scale = state.pxPerAU * state.zoom;
+  // Perspective: px-per-AU is only meaningful at one depth — we measure it at
+  // the camera-target plane, so the bar stays honest as the dolly moves
+  const ROUND = [1e-5,2e-5,5e-5,1e-4,2e-4,5e-4,0.001,0.002,0.005,0.01,0.02,0.05,0.1,0.2,0.5,1,2,5,10,20,50,100];
+  const scale = pxPerAU();
   let chosen = ROUND[0];
   for (const v of ROUND) {
     chosen = v;
     if (v * scale >= 80) break;
   }
   const barPx = Math.round(chosen * scale);
-  const label = chosen < 1 ? chosen + ' AU' : (chosen >= 1 ? chosen + ' AU' : chosen + ' AU');
+  const label = chosen >= 0.01 ? chosen + ' AU'
+    : Math.round(chosen * 1.496e8).toLocaleString('en-US') + ' km';
   const line = document.getElementById('dyn-scale-line');
   const lbl  = document.getElementById('dyn-scale-label');
   if (line) line.style.width = barPx + 'px';
   if (lbl)  lbl.textContent  = label;
+  const sv = document.getElementById('scale-val');
+  if (sv) sv.textContent = scale >= 1
+    ? '1 AU = ' + scale.toFixed(0) + ' px'
+    : '1 AU = ' + scale.toFixed(2) + ' px';
 }
 
 // Vis-viva orbital speed: v = sqrt(GM*(2/r - 1/a)) in km/s
 function visVivaKms(a, r) {
   const GM = 4*Math.PI*Math.PI; // AU³/yr²
   const v_AU_per_yr = Math.sqrt(GM * (2/r - 1/a));
-  return +(v_AU_per_yr * 29.7827).toFixed(1); // 1 AU/yr = 29.7827 km/s
+  return +(v_AU_per_yr * 4.74057).toFixed(1); // 1 AU/yr = 4.74057 km/s (Earth: 2π AU/yr ≈ 29.8)
 }
 
 function renderList() {
@@ -1615,27 +1760,46 @@ document.getElementById('btn-play').addEventListener('click',()=>{
 document.getElementById('btn-fwd').addEventListener('click',()=>{state.speed=Math.min(8,state.speed*2);document.getElementById('speed-val').textContent='×'+state.speed.toFixed(1);});
 document.getElementById('btn-rew').addEventListener('click',()=>{state.speed=Math.max(0.125,state.speed/2);document.getElementById('speed-val').textContent='×'+state.speed.toFixed(1);});
 // ─── Focus Mode ──────────────────────────────────────────────────────────────
-// Double-click any object (planet, tracked NEO, MPC asteroid) — or press F on
-// hover, or the sidebar Focus button — for a cinematic single-object view.
-// ESC / double-click on empty space exits. tick() drives the fade-through-black
-// entry/exit animation via state.focusLerp (~1.2 s, easeInOutCubic).
+// Double-click any object (planet, Moon, tracked NEO, MPC asteroid) — or press
+// F on hover, or the sidebar Focus button — for a cinematic single-object view.
+// ONE scene, ONE camera: focus is pure camera state. Entry animates the camera
+// target onto the (moving) object with a log-space dolly (~1.4 s); afterwards
+// the camera FOLLOWS the object every frame while the user orbits/dollies
+// around it, and 5 s without input starts a slow auto-rotate (Eyes signature).
+// Asteroids get their 3D shape model (NASA GLB or procedural) promoted into
+// the main scene at the real position, radius estimated from H.
+// ESC / double-click on empty space glides back to the pre-focus camera (~1 s).
 
-var _focusSaved = null;        // pan/zoom snapshot restored on exit
-var _focusModelText = null;    // #repr-notice override when a NASA GLB is shown
-var _promoModelText = null;    // same, for the promoted dossier object
+var _promoModelText = null;    // #repr-notice override when a NASA GLB is shown
+
+// Focus runtime (tick() drives these)
+var _focusFollow     = false;  // entry animation done → target glued to object
+var _focusStartCam   = null;   // {tx,ty,tz,dist} snapshot at glide start
+var _focusDistTarget = 0.002;  // dolly end distance (AU)
+var _focusMinDist    = 3e-5;   // dolly floor while following (≈ radius · 1.3)
+var _focusRadiusAU   = 0;      // physical radius of the focused object (AU)
+var _exitAnim        = null;   // { from:{cam…}, t:0..1 } while exiting
 
 function _easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Radius in AU from absolute magnitude H (mid albedo 0.14):
+// D_km = 1329/√p · 10^(−H/5). Fallback ≈ 250 m for objects without H.
+function _astRadiusAU(ast) {
+  var H = ast && ast.H;
+  if (H == null || !isFinite(H)) return 1.7e-9;
+  var D_km = (1329 / Math.sqrt(0.14)) * Math.pow(10, -H / 5);
+  return (D_km / 2) / 1.496e8;
 }
 
 function _refreshReprNotice() {
   var el = document.getElementById('repr-notice');
   if (!el) return;
   var txt = null;
-  if (state.focusTarget) {
-    if (state.focusTarget.type !== 'planet' && state.focusTarget.type !== 'luna') {
-      txt = _focusModelText || '⚠ ARTISTIC REPRESENTATION · ACTUAL SHAPE UNKNOWN';
-    }
+  var tg = state.focusTarget;
+  if (tg && (tg.type === 'neo' || tg.type === 'mpc')) {
+    txt = _promoModelText || '⚠ ARTISTIC REPRESENTATION · ACTUAL SHAPE UNKNOWN';
   } else if (_promotedAst) {
     txt = _promoModelText || '⚠ ARTISTIC REPRESENTATION';
   }
@@ -1645,10 +1809,40 @@ function _refreshReprNotice() {
 
 // Renderer callback: a real NASA shape model replaced the procedural mesh
 _renderer.onModelApplied = function (context, key, noticeText) {
-  if (context === 'focus') _focusModelText = noticeText;
-  else if (context === 'promoted') _promoModelText = noticeText;
+  _promoModelText = noticeText;
   _refreshReprNotice();
 };
+
+// ONE shared mesh slot in the renderer serves both the dossier's promoted
+// asteroid and the focused NEO/MPC. Promote whatever should carry the mesh
+// now; demote (with dispose) when nothing should.
+function _syncAsteroidMesh() {
+  var want = null;
+  var tg = state.focusTarget;
+  if (tg && tg.type === 'neo') {
+    var n = NEOS[tg.idx];
+    // The NEO's own orbit LineLoop already lives in the scene
+    want = { desig: n.id, name: n.name, orbit: null, ast: null };
+  } else if (tg && tg.type === 'mpc') {
+    want = { desig: tg.ast.designation, name: tg.ast.name,
+             orbit: buildMPCOrbitPts(tg.ast, 256), ast: tg.ast };
+  } else if (_promotedAst) {
+    want = { desig: _promotedAst.designation, name: _promotedAst.name,
+             orbit: buildMPCOrbitPts(_promotedAst, 256), ast: _promotedAst };
+  }
+  if (!want) {
+    if (_promoKey !== null) {
+      _renderer.demote();                      // disposes mesh + orbit + trajectory
+      _promoKey = null; _promoAstRef = null; _promoModelText = null;
+    }
+    return;
+  }
+  _promoAstRef = want.ast;
+  if (want.desig === _promoKey) return;        // same object — keep mesh/trajectory
+  _promoModelText = null;
+  _renderer.promote(want.desig, want.name, want.orbit);  // may fire onModelApplied synchronously
+  _promoKey = want.desig;
+}
 
 // Closed orbit loop for an MPC asteroid, sampled over one period from now —
 // same solver path as its live position (Kepler + secular), page-side only.
@@ -1658,7 +1852,7 @@ function buildMPCOrbitPts(ast, segments) {
   var pts = new Float32Array(segments * 3);
   for (var k = 0; k < segments; k++) {
     var p = getMPCPosition(ast, jd0 + (k / segments) * P);
-    pts[k * 3] = p.x; pts[k * 3 + 1] = p.y;
+    pts[k * 3] = p.x; pts[k * 3 + 1] = p.y; pts[k * 3 + 2] = p.z;
   }
   return pts;
 }
@@ -1669,7 +1863,7 @@ function _focusTargetPos(t) {
   if (tg.type === 'neo')    return orbitPos(NEOS[tg.idx], t);
   if (tg.type === 'luna') {
     var ep = orbitPos(PLANETS[2], t), mp = moonPos(t);
-    return { x: ep.x + mp.x, y: ep.y + mp.y };
+    return { x: ep.x + mp.x, y: ep.y + mp.y, z: mp.z };
   }
   return getMPCPosition(tg.ast, _SIM_EPOCH_JD + t);
 }
@@ -1681,56 +1875,84 @@ var _fhEarth = document.getElementById('fh-earth');
 function updateFocusHud(pos, t) {
   var tg = state.focusTarget;
   if (!tg) return;
-  var r = Math.hypot(pos.x, pos.y);
+  var pz = pos.z || 0;
+  var r = Math.hypot(pos.x, pos.y, pz);
+  var ep = orbitPos(PLANETS[2], t);
   if (tg.type === 'luna') {
-    // Circular presentation orbit: distance and speed are constants
+    // Circular geocentric orbit: speed is constant, distance stays ≈ MOON_A
+    var dGeo = Math.hypot(pos.x - ep.x, pos.y - ep.y, pz);
     _fhVel.textContent   = '1.02 km/s';
     _fhSun.textContent   = r.toFixed(3) + ' AU';
-    _fhEarth.textContent = '384,400 km';
+    _fhEarth.textContent = Math.round(384400 * dGeo / MOON_A).toLocaleString('en-US') + ' km';
     return;
   }
-  var ep = orbitPos(PLANETS[2], t);
-  var dE_LD = Math.hypot(pos.x - ep.x, pos.y - ep.y) / 0.00257;
-  _fhVel.textContent   = tg.a && r > 0 ? visVivaKms(tg.a, r).toFixed(1) + ' km/s' : '—';
-  _fhSun.textContent   = r.toFixed(3) + ' AU';
+  _fhVel.textContent = tg.a && r > 0 ? visVivaKms(tg.a, r).toFixed(1) + ' km/s' : '—';
+  _fhSun.textContent = r.toFixed(3) + ' AU';
+  if (tg.type === 'planet') {
+    if (PLANETS[tg.idx].key === 'earth') {
+      _fhEarth.textContent = '—';
+    } else {
+      var dAU = Math.hypot(pos.x - ep.x, pos.y - ep.y);
+      var dLD = dAU / 0.00257;
+      _fhEarth.textContent = dAU.toFixed(3) + ' AU · ' +
+        (dLD >= 100 ? dLD.toFixed(0) : dLD.toFixed(1)) + ' LD';
+    }
+    return;
+  }
+  var dE_LD = Math.hypot(pos.x - ep.x, pos.y - ep.y, pz) / 0.00257;
   _fhEarth.textContent = (dE_LD < 100 ? dE_LD.toFixed(2) : dE_LD.toFixed(0)) + ' LD';
+}
+
+// Dolly targets for an object of physical radius r (Part 6): the end distance
+// frames the body; "raioEfetivo" folds in the min-px floor at that distance so
+// tiny asteroids still land at a sensible range.
+function _setFocusDollyTargets(radiusAU) {
+  _focusRadiusAU = radiusAU;
+  var distGuess = Math.max(radiusAU * 4, 0.002);
+  var minWorldR = 6 * (2 * distGuess * Math.tan(FOV_RAD / 2) / H);
+  var rEff = Math.max(radiusAU, minWorldR);
+  _focusDistTarget = Math.max(rEff * 4, 0.002);
+  _focusMinDist = Math.max(rEff * 1.3, 3e-5);
+}
+
+function _beginFocusGlide() {
+  state.focusLerp = 0;
+  _focusFollow = false;
+  _exitAnim = null;
+  _focusStartCam = { tx: state.cam.tx, ty: state.cam.ty, tz: state.cam.tz, dist: state.cam.dist };
+  _camVTheta = 0; _camVPhi = 0;
+  _lastInteractT = performance.now();
 }
 
 function enterFocus(target) {
   if (state.focusTarget) return;               // already focused / animating out
-  _focusSaved = { panX: state.panX, panY: state.panY, zoom: state.zoom };
+  state._camBeforeFocus = Object.assign({}, state.cam);
   state.focusMode = true;
-  state.focusLerp = 0;
-  state._focusCamTheta = 0;
-  state._focusCamPhi = Math.PI / 4;
-  state._focusCamRadius = 1.5;
 
-  var desc;
+  var radiusAU = 0;
   if (target.type === 'planet') {
     var p = PLANETS[target.idx];
     target.a = p.a; target.name = p.name;
     target.desig = 'PLANET · a = ' + p.a.toFixed(3) + ' AU';
-    desc = { kind: 'planet', index: target.idx, name: p.name, orbitPts: buildOrbitPts(p, 256) };
-  } else if (target.type === 'neo') {
-    var n = NEOS[target.idx];
-    target.a = n.a; target.name = n.name; target.desig = n.desig;
-    desc = { kind: 'neo', designation: n.id, name: n.name, orbitPts: buildOrbitPts(n, 256) };
+    radiusAU = REAL_RADIUS_AU[p.key] || 2e-5;  // shared table from renderer3d.js
   } else if (target.type === 'luna') {
     target.a = 1.0; target.name = 'Moon';
     target.desig = 'EARTH SATELLITE · P = 27.32 D';
-    desc = { kind: 'luna', name: 'Moon' };   // renderer builds the geocentric orbit
+    radiusAU = REAL_RADIUS_AU.moon;
+  } else if (target.type === 'neo') {
+    var n = NEOS[target.idx];
+    target.a = n.a; target.name = n.name; target.desig = n.desig;
+    radiusAU = 1.7e-9;                         // catalog NEOs carry no H — ~500 m body
   } else {
     var ast = target.ast;
     target.a = ast.a; target.name = ast.name || ast.designation; target.desig = ast.designation;
-    desc = { kind: 'mpc', designation: ast.designation, name: ast.name, orbitPts: buildMPCOrbitPts(ast, 256) };
+    radiusAU = _astRadiusAU(ast);
   }
   state.focusTarget = target;
 
-  _focusModelText = null;
-  _renderer.setFocusTarget(desc);              // may fire onModelApplied synchronously
-  // Start the camera at 2.5× the object's visual radius (min 0.4) — always
-  // outside the surface: Earth 0.35, Jupiter 0.7, asteroids/Moon 0.4
-  state._focusCamRadius = Math.max(_renderer.getFocusObjectRadius() * 2.5, 0.4);
+  _setFocusDollyTargets(radiusAU);
+  _beginFocusGlide();
+  _syncAsteroidMesh();                         // NEO/MPC: 3D mesh in the MAIN scene
   _refreshReprNotice();
 
   document.getElementById('fh-name').textContent = target.name;
@@ -1741,15 +1963,13 @@ function enterFocus(target) {
   state.hoverId = null; state.hoverPlanet = null; _hoverMPC = null; state.hoverLuna = false;
 }
 
-// Click on the Moon while focused on Earth → the Moon becomes the focus.
-// focusLerp reset to the midpoint replays only the fade-from-black half.
+// Click on the Moon while focused on Earth → the Moon becomes the focus:
+// same follow mode, so the camera glides Earth → Moon with no cut.
 function _switchFocusToLuna() {
   var target = { type: 'luna', a: 1.0, name: 'Moon', desig: 'EARTH SATELLITE · P = 27.32 D' };
   state.focusTarget = target;
-  state.focusLerp = 0.5;
-  state._focusCamRadius = 1.2;
-  _focusModelText = null;
-  _renderer.setFocusTarget({ kind: 'luna', name: 'Moon' });
+  _setFocusDollyTargets(REAL_RADIUS_AU.moon);
+  _beginFocusGlide();
   _refreshReprNotice();
   document.getElementById('fh-name').textContent = target.name;
   document.getElementById('fh-desig').textContent = target.desig;
@@ -1757,17 +1977,18 @@ function _switchFocusToLuna() {
 
 function exitFocus() {
   if (!state.focusMode) return;
-  state.focusMode = false;                     // tick() animates focusLerp → 0
-  if (_focusSaved) {
-    state.panX = _focusSaved.panX; state.panY = _focusSaved.panY; state.zoom = _focusSaved.zoom;
-  }
+  state.focusMode = false;
+  _focusFollow = false;                        // follow off at animation start
+  _exitAnim = { from: Object.assign({}, state.cam), t: 0 };
   document.getElementById('focus-hud').classList.remove('show');
 }
 
-function _finishExitFocus() {                  // called by tick() once lerp hits 0
+function _finishExitFocus() {                  // called by tick() once the glide lands
+  if (state._camBeforeFocus) Object.assign(state.cam, state._camBeforeFocus);
   state.focusTarget = null;
-  _renderer.clearFocusTarget();
-  _focusModelText = null;
+  state.focusLerp = 0;
+  _exitAnim = null;
+  _syncAsteroidMesh();                         // demote unless the dossier still owns it
   _refreshReprNotice();
   _container.classList.remove('focus-active');
 }
@@ -1779,37 +2000,70 @@ document.getElementById('focus-btn').addEventListener('click', function (e) {
   if (idx >= 0) enterFocus({ type: 'neo', idx: idx });
 });
 
-// ─── Drag-pan state ──────────────────────────────────────────────────────────
-let _panDragging = false, _panSX = 0, _panSY = 0, _panX0 = 0, _panY0 = 0;
-let _panLX = 0, _panLY = 0;   // last mouse position (focus-mode camera orbit)
+// ─── Camera controls (manual — no OrbitControls) ─────────────────────────────
+// Left-drag orbits (theta/phi), right-drag or shift+left-drag pans the target
+// in the screen plane, wheel dollies exponentially. Inertia decays in tick().
+// The focus target follows a moving object, which OrbitControls cannot do.
+let _dragMode = null;              // 'orbit' | 'pan' | null — ACTIVE drag
+let _dragArmed = null;             // mode armed on mousedown, activated after 4px
+let _panSX = 0, _panSY = 0;        // mousedown position (click-vs-drag test)
+let _panLX = 0, _panLY = 0;        // last mouse position while dragging
+let _camVTheta = 0, _camVPhi = 0;  // angular inertia seeded by the last drag
+let _lastInteractT = 0;            // last user input — drives focus auto-rotate
 
 cv.style.cursor = 'grab';
+cv.addEventListener('contextmenu', e => e.preventDefault());   // right-drag = pan
+
+// Pan: move the camera target along the screen plane, converting px → AU at
+// the target depth. Disabled while focus follow has the target glued.
+function camPan(dx, dy) {
+  if (state.focusTarget) return;
+  const c = state.cam;
+  const wpp = 2 * c.dist * Math.tan(FOV_RAD / 2) / H;   // world per pixel
+  const ct = Math.cos(c.theta), st = Math.sin(c.theta);
+  const cp = Math.cos(c.phi),  sp = Math.sin(c.phi);
+  // Camera right/up vectors in world coords (up = +z, spherical position)
+  const rx = -ct,      ry = st;                          // rz = 0
+  const ux = -sp * st, uy = -sp * ct, uz = cp;
+  c.tx -= (rx * dx - ux * dy) * wpp;
+  c.ty -= (ry * dx - uy * dy) * wpp;
+  c.tz -= (      - uz * dy) * wpp;
+}
 
 cv.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  _panDragging = true;
+  if (e.button !== 0 && e.button !== 2) return;
+  // Arm only — the drag activates in mousemove after a 4px threshold, so
+  // clicks (and double-clicks) never nudge the camera.
+  _dragArmed = (e.button === 2 || e.shiftKey) ? 'pan' : 'orbit';
+  _dragMode = null;
   _panSX = e.clientX; _panSY = e.clientY;
   _panLX = e.clientX; _panLY = e.clientY;
-  _panX0 = state.panX; _panY0 = state.panY;
-  cv.style.cursor = 'grabbing';
+  _camVTheta = 0; _camVPhi = 0;
+  _lastInteractT = performance.now();
 });
 
 cv.addEventListener('mouseup', () => {
-  if (_panDragging) { _panDragging = false; cv.style.cursor = 'grab'; }
+  _dragArmed = null;
+  if (_dragMode) { _dragMode = null; cv.style.cursor = 'grab'; }
 });
 
 cv.addEventListener('dblclick', e => {
+  const r = cv.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
   if (state.focusTarget) {
-    // Exit only when the double-click lands on empty space — the focused
-    // object always projects to the screen centre, so a centre hit is "on it".
-    const r = cv.getBoundingClientRect();
-    const dx = (e.clientX - r.left) - r.width / 2;
-    const dy = (e.clientY - r.top) - r.height / 2;
-    // A double-click on the orbiting Moon is a re-focus (handled by click), not an exit
-    const fmp = _renderer.getFocusMoonScreenPos();
-    if (fmp && Math.hypot((e.clientX - r.left) - fmp.x, (e.clientY - r.top) - fmp.y) < Math.max(12, fmp.r + 6)) return;
-    const objPx = (_renderer.getFocusObjectRadius() / (state._focusCamRadius * Math.tan(25 * Math.PI / 180))) * (r.height / 2);
-    if (Math.hypot(dx, dy) > Math.max(40, objPx)) exitFocus();
+    const tg = state.focusTarget;
+    // A double-click on the orbiting Moon while Earth is focused is a
+    // re-focus (handled by the click listener) — don't exit
+    if (tg.type === 'planet' && PLANETS[tg.idx].key === 'earth') {
+      const luna = _renderer.getLunaScreenPos();
+      if (luna && Math.hypot(mx - luna.x, my - luna.y) < Math.max(12, luna.r + 6)) return;
+    }
+    // Exit when the double-click lands on empty space (off the focused body)
+    const tp = _focusTargetPos(state.simTime);
+    const s = ws(tp.x, tp.y, tp.z);
+    const wpp = 2 * state.cam.dist * Math.tan(FOV_RAD / 2) / H;
+    const objPx = Math.max(8, _focusRadiusAU / wpp);
+    if (!s || Math.hypot(mx - s.x, my - s.y) > Math.max(40, objPx)) exitFocus();
     return;
   }
   if (state.hoverId) {
@@ -1823,40 +2077,50 @@ cv.addEventListener('dblclick', e => {
   } else if (state.showMPC && _mpcLoaded) {
     // Re-run the spatial-hash hit test: the first click of a double-click on
     // an MPC asteroid opens the dossier, which clears _hoverMPC.
-    const rc = cv.getBoundingClientRect();
-    const hit = _mpcHit(e.clientX - rc.left, e.clientY - rc.top);
+    const hit = _mpcHit(mx, my);
     if (hit) enterFocus({ type: 'mpc', ast: hit.ast });
-    else { state.panX = 0; state.panY = 0; }
+    else { state.cam.tx = 0; state.cam.ty = 0; state.cam.tz = 0; }
   } else {
-    state.panX = 0; state.panY = 0;            // original behaviour: recentre
+    state.cam.tx = 0; state.cam.ty = 0; state.cam.tz = 0;   // recentre on the Sun
   }
 });
 
 cv.addEventListener('mousemove',e=>{
   const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
-  if (state.focusTarget) {
-    // Focus mode: drag orbits the camera around the object (spherical coords)
-    if (_panDragging) {
-      state._focusCamTheta += (e.clientX - _panLX) * 0.008;
-      state._focusCamPhi = Math.min(Math.PI - 0.1, Math.max(0.1,
-        state._focusCamPhi + (e.clientY - _panLY) * 0.008));
+  // Armed drag becomes active only after 4px of travel — below that the
+  // gesture is still a click and the camera must not move
+  if (!_dragMode && _dragArmed &&
+      Math.hypot(e.clientX - _panSX, e.clientY - _panSY) > 4) {
+    _dragMode = _dragArmed;
+    cv.style.cursor = 'grabbing';
+  }
+  if (_dragMode) {
+    // Same orbit/pan math everywhere — in focus the orbit spins around the
+    // followed object because the target is glued to it
+    const dx = e.clientX - _panLX, dy = e.clientY - _panLY;
+    if (_dragMode === 'orbit') {
+      state.cam.theta -= dx * 0.005;
+      state.cam.phi = Math.min(1.48, Math.max(-1.48, state.cam.phi + dy * 0.005));
+      _camVTheta = -dx * 0.005; _camVPhi = dy * 0.005;   // inertia seed
+    } else {
+      camPan(dx, dy);
     }
+    _lastInteractT = performance.now();
     _panLX = e.clientX; _panLY = e.clientY;
     return;
   }
   _panLX = e.clientX; _panLY = e.clientY;
-  if (_panDragging) {
-    state.panX = _panX0 + (e.clientX - _panSX);
-    state.panY = _panY0 + (e.clientY - _panSY);
-  }
+  if (state.focusTarget) return;               // no hover/tooltips while focused
   let best=null,bestD=22;
-  for(const n of NEOS){const p=orbitPos(n,state.simTime),s=ws(p.x,p.y),d=Math.hypot(s.x-x,s.y-y);if(d<bestD){bestD=d;best=n;}}
-  // Check planet hover
+  for(const n of NEOS){const p=orbitPos(n,state.simTime),s=ws(p.x,p.y,p.z);if(!s)continue;const d=Math.hypot(s.x-x,s.y-y);if(d<bestD){bestD=d;best=n;}}
+  // Check planet hover (ws() null = behind the camera — skip)
   let bestPlanet=null,bestPD=18;
   if(state.showPlanets){
     for(const p of PLANETS){
       if(!state.planetToggles[p.key])continue;
-      const pos=orbitPos(p,state.simTime),s=ws(pos.x,pos.y),d=Math.hypot(s.x-x,s.y-y);
+      const pos=orbitPos(p,state.simTime),s=ws(pos.x,pos.y,0);
+      if(!s)continue;
+      const d=Math.hypot(s.x-x,s.y-y);
       if(d<bestPD){bestPD=d;bestPlanet=p;}
     }
   }
@@ -1865,7 +2129,7 @@ cv.addEventListener('mousemove',e=>{
   state.hoverLuna=false;
   let lunaHit=false;
   if(!best && state.showPlanets && state.planetToggles.earth){
-    const luna=_renderer.getLunaScreenPos(state);
+    const luna=_renderer.getLunaScreenPos();
     if(luna && luna.sep>3){
       const dL=Math.hypot(x-luna.x,y-luna.y);
       if(dL<luna.r+8 && (!bestPlanet||dL<bestPD)) lunaHit=true;
@@ -1909,7 +2173,7 @@ cv.addEventListener('mousemove',e=>{
       const currentJD = _SIM_EPOCH_JD + state.simTime;
       const astPos = getMPCPosition(ast, currentJD);
       const earthPos = orbitPos(PLANETS[2], state.simTime);
-      const dist_AU = Math.hypot(astPos.x - earthPos.x, astPos.y - earthPos.y);
+      const dist_AU = Math.hypot(astPos.x - earthPos.x, astPos.y - earthPos.y, astPos.z);
       const dist_LD = (dist_AU / 0.00257).toFixed(2);
       const q = ast.a * (1 - ast.e);
       const type = ast.a < 1 ? 'Aten' : q < 1.017 ? 'Apollo' : q < 1.3 ? 'Amor' : 'MBA';
@@ -1922,17 +2186,17 @@ cv.addEventListener('mousemove',e=>{
     } else {
       state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null;
       tt.classList.remove('show');
-      if(!_panDragging) cv.style.cursor='grab';
+      if(!_dragMode) cv.style.cursor='grab';
     }
   } else{
     state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null;
     tt.classList.remove('show');
-    if(!_panDragging) cv.style.cursor='grab';
+    if(!_dragMode) cv.style.cursor='grab';
   }
 });
 
 cv.addEventListener('mouseleave',()=>{
-  _panDragging=false;
+  _dragMode=null; _dragArmed=null;
   state.hoverId=null; state.hoverPlanet=null; state.hoverLuna=false;
   document.getElementById('tooltip').classList.remove('show');
   cv.style.cursor='grab';
@@ -1940,12 +2204,12 @@ cv.addEventListener('mouseleave',()=>{
 cv.addEventListener('click',e=>{
   if(state.focusTarget){
     // Focus mode: the only live click target is the Moon while Earth is focused
-    if(state.focusMode && state.focusLerp>=0.5   // focus scene actually on screen
+    if(state.focusMode
        && state.focusTarget.type==='planet' && PLANETS[state.focusTarget.idx].key==='earth'
        && Math.hypot(e.clientX-_panSX,e.clientY-_panSY)<4){   // ignore drag-release
       const rc=cv.getBoundingClientRect();
-      const mp=_renderer.getFocusMoonScreenPos();
-      if(mp && Math.hypot((e.clientX-rc.left)-mp.x,(e.clientY-rc.top)-mp.y)<Math.max(12,mp.r+6)){
+      const luna=_renderer.getLunaScreenPos();
+      if(luna && Math.hypot((e.clientX-rc.left)-luna.x,(e.clientY-rc.top)-luna.y)<Math.max(12,luna.r+6)){
         _switchFocusToLuna();
       }
     }
@@ -1962,15 +2226,18 @@ cv.addEventListener('click',e=>{
 });
 cv.addEventListener('wheel',e=>{
   e.preventDefault();
-  if (state.focusTarget) {
-    // Focus mode: wheel moves the camera along its orbit radius — floor it
-    // just above the focused object's surface (big planets are >1 unit)
-    state._focusCamRadius = Math.max(Math.max(0.15, _renderer.getFocusObjectRadius() * 1.15), Math.min(8,
-      state._focusCamRadius * (1 + Math.sign(e.deltaY) * 0.12)));
-    return;
+  // Exponential dolly — continuous zoom from the full system to a surface
+  const factor = e.deltaY > 0 ? 1.10 : 0.90;
+  if (state.focusTarget && !_focusFollow && !_exitAnim) {
+    // Mid-entry glide: retarget the dolly endpoint so the wheel never fights
+    // the animation
+    _focusDistTarget = Math.max(_focusMinDist, Math.min(120, _focusDistTarget * factor));
+  } else {
+    // Dolly floor is dynamic in focus follow (just above the surface)
+    const minD = _focusFollow ? _focusMinDist : 0.0005;
+    state.cam.dist = Math.max(minD, Math.min(120, state.cam.dist * factor));
   }
-  state.zoom=Math.max(0.035,Math.min(15,state.zoom*(1-Math.sign(e.deltaY)*0.12)));
-  document.getElementById('scale-val').textContent=`1 AU = ${(state.pxPerAU*state.zoom).toFixed(0)} px`;
+  _lastInteractT = performance.now();
 },{passive:false});
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
@@ -2107,63 +2374,70 @@ function _updateSheetSummary(n) {
 }
 
 // ─── Touch controls ───────────────────────────────────────────
+// 1 finger: orbit. 2-finger pinch: dolly (ratio of finger distances).
+// 2-finger parallel drag: pan (centroid movement). Same math as the mouse.
 (function () {
-  let pinchDist = null;
-  let panStart  = null;
+  let touchOrbit = null;         // { x, y } — last 1-finger position
+  let pinchDist  = null;         // last 2-finger distance
+  let lastCX = 0, lastCY = 0;    // last 2-finger centroid
 
   cv.addEventListener('touchstart', function (e) {
+    _lastInteractT = performance.now();
     if (e.touches.length === 2) {
       pinchDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      panStart = null;
+      lastCX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      lastCY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      touchOrbit = null;
       e.preventDefault();
     } else if (e.touches.length === 1) {
-      panStart  = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      touchOrbit = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       pinchDist = null;
     }
   }, { passive: false });
 
   cv.addEventListener('touchmove', function (e) {
     e.preventDefault();
-    if (state.focusTarget) {
-      // Focus mode: pinch = camera radius, single-finger drag = orbit
-      if (e.touches.length === 2 && pinchDist !== null) {
-        var dF = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        state._focusCamRadius = Math.max(Math.max(0.15, _renderer.getFocusObjectRadius() * 1.15), Math.min(8,
-          state._focusCamRadius * (pinchDist / dF)));
-        pinchDist = dF;
-      } else if (e.touches.length === 1 && panStart) {
-        state._focusCamTheta += (e.touches[0].clientX - panStart.x) * 0.008;
-        state._focusCamPhi = Math.min(Math.PI - 0.1, Math.max(0.1,
-          state._focusCamPhi + (e.touches[0].clientY - panStart.y) * 0.008));
-        panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      }
-      return;
-    }
+    _lastInteractT = performance.now();
     if (e.touches.length === 2 && pinchDist !== null) {
+      // Pinch = exponential dolly
       var d = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      state.zoom = Math.max(0.008, Math.min(50, state.zoom * (d / pinchDist)));
-      pinchDist  = d;
-      document.getElementById('scale-val').textContent =
-        '1 AU = ' + (state.pxPerAU * state.zoom).toFixed(0) + ' px';
-    } else if (e.touches.length === 1 && panStart) {
-      state.panX += e.touches[0].clientX - panStart.x;
-      state.panY += e.touches[0].clientY - panStart.y;
-      panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (d > 1) {
+        var ratio = pinchDist / d;
+        if (state.focusTarget && !_focusFollow && !_exitAnim) {
+          _focusDistTarget = Math.max(_focusMinDist, Math.min(120, _focusDistTarget * ratio));
+        } else {
+          var minD = _focusFollow ? _focusMinDist : 0.0005;
+          state.cam.dist = Math.max(minD, Math.min(120, state.cam.dist * ratio));
+        }
+        pinchDist = d;
+      }
+      // Parallel drag = pan via centroid movement (no-op while focused)
+      var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      camPan(cx - lastCX, cy - lastCY);
+      lastCX = cx; lastCY = cy;
+    } else if (e.touches.length === 1 && touchOrbit) {
+      var dx = e.touches[0].clientX - touchOrbit.x;
+      var dy = e.touches[0].clientY - touchOrbit.y;
+      state.cam.theta -= dx * 0.005;
+      state.cam.phi = Math.min(1.48, Math.max(-1.48, state.cam.phi + dy * 0.005));
+      _camVTheta = -dx * 0.005; _camVPhi = dy * 0.005;
+      touchOrbit = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
   }, { passive: false });
 
   cv.addEventListener('touchend', function (e) {
     if (e.touches.length < 2) pinchDist = null;
-    if (e.touches.length === 0) panStart = null;
+    if (e.touches.length === 0) touchOrbit = null;
+    else if (e.touches.length === 1) {
+      touchOrbit = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
   });
 })();
 

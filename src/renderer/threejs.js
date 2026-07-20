@@ -4,14 +4,21 @@
    all orbits and hands this class flat arrays of positions — this file only
    turns those arrays into pixels.
 
-   Coordinate convention — must match the page's 2D projection ws() exactly:
-       screen_x = W/2 + panX + x · pxPerAU · zoom
-       screen_y = H/2 + panY + y · pxPerAU · zoom      (+y is DOWN on screen)
-   Achieved with an OrthographicCamera placed BELOW the ecliptic plane:
-       position (cx, cy, −CAM_DIST), up (0,−1,0), looking at (cx, cy, 0)
-   That is a rigid rotation (not a reflection), so triangle winding and face
-   culling stay correct while the on-screen orientation is identical to the
-   old Canvas 2D view. Objects with MORE NEGATIVE z render ON TOP.
+   Camera — free-orbit PerspectiveCamera, NASA Eyes on Asteroids style.
+   The ecliptic plane is world XY, +z is ecliptic north ("up"). The page owns
+   the camera state {tx,ty,tz, dist, theta, phi} (frame.cam) and this file
+   derives the position by spherical coordinates:
+       px = tx + dist·cos(phi)·sin(theta)
+       py = ty + dist·cos(phi)·cos(theta)
+       pz = tz + dist·sin(phi)          up = (0,0,1), lookAt(tx,ty,tz)
+   Every render() writes the combined view-projection matrix into a shared
+   Float32Array(16) (getVPMatrix()) — the page's ws() projects world→screen
+   through it, which keeps hover/labels/spatial-hash math renderer-agnostic.
+
+   Body scale: every body carries its REAL radius in AU and a minimum pixel
+   size — the mesh scale is max(realRadiusAU, minPx·worldPerPixel(dist)).
+   From afar everything is a fixed-px clickable dot; up close the perspective
+   projection takes over and sizes become physically true.
 
    Text labels, dashed conjunction lines and pulse rings are drawn on a thin
    transparent 2D overlay canvas (pointer-events: none) — WebGL carries all
@@ -36,28 +43,18 @@ var ORBIT_STYLE = {
   safe:    { color: '#aab4d2', base: 0.18, sel: 0.45 },
 };
 
-// z-layers: camera sits at −CAM_DIST, so more-negative z draws on top
-var LAYER = {
-  glow:      0.5,
-  orbit:     0.35,
-  cone:      0.3,
-  mpc:       0.2,
-  mc:        0.15,
-  traj:      0.1,
-  neo:      -0.1,
-  planet:   -0.2,
-  promoted: -0.25,
-  sun:      -0.3,
+// Real body radii in AU — physical truth, applied as a floor of minPx on screen
+var REAL_RADIUS_AU = {
+  sun:     4.65e-3,
+  mercury: 1.63e-5, venus:  4.05e-5, earth:   4.26e-5, mars:    2.27e-5,
+  jupiter: 4.78e-4, saturn: 4.03e-4, uranus:  1.71e-4, neptune: 1.65e-4,
+  moon:    1.16e-5,
 };
 
-var CAM_DIST = 100;
+// Minimum on-screen radius in px so every body stays a clickable dot from afar
+var MIN_PX = { sun: 9, planet: 5, moon: 3, neo: 4 };
 
-// Physical planet radii normalized to Earth = 1 (focus-mode relative scale)
-var PLANET_REAL_RADIUS = {
-  mercury: 0.383, venus:  0.949, earth:   1.000, mars:    0.532,
-  jupiter: 11.21, saturn: 9.449, uranus:  4.007, neptune: 3.883,
-};
-var FOCUS_EARTH_RADIUS = 0.14;   // Earth = 0.14 scene units in focus mode
+var FOV_DEG = 45;
 
 // Sidereal rotation period in days (negative = retrograde: Venus, Uranus)
 var SIDEREAL_DAY = {
@@ -76,11 +73,7 @@ var AXIAL_TILT = {
 // a classic script sharing the global scope — and every use below runs after
 // the page script has evaluated. Redeclaring them here would throw
 // "Identifier has already been declared" and kill the page script.
-var MOON_RADIUS_RATIO = 0.273;                                 // Moon/Earth radii
-var MOON_INCL   = 5.145 * Math.PI / 180;                       // vs ecliptic
-// Presentation distance Earth↔Moon in focus mode, in Earth visual radii —
-// real scale (60 R⊕) would push the Moon off-screen, glued (1 R⊕) reads wrong
-var MOON_FOCUS_DIST_ER = 3.2;
+var MOON_INCL = 5.145 * Math.PI / 180;                         // vs ecliptic
 
 function moonOrbitAngle(simTime) {
   return MOON_PHASE0 + (simTime / MOON_PERIOD) * Math.PI * 2;
@@ -420,12 +413,20 @@ class ThreeJSRenderer {
     this.octx = this.overlay.getContext('2d');
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
-    this.camera.up.set(0, -1, 0);
+    // Free-orbit perspective camera — near 1e-5 AU (≈1500 km) to 500 AU; the
+    // logarithmicDepthBuffer makes that range artifact-free (and only works
+    // correctly with a perspective projection).
+    this.camera = new THREE.PerspectiveCamera(FOV_DEG, this.W / Math.max(1, this.H), 1e-5, 500);
+    this.camera.up.set(0, 0, 1);
+    this._camPos = new THREE.Vector3();
+    this._vpMat = new THREE.Matrix4();
+    // Shared view-projection matrix (column-major) — the page's ws() reads it
+    this._vpArray = new Float32Array(16);
+    this._wpp1 = 1;   // world units per pixel at distance 1 (set per frame)
 
     // Lights: sun point light + ambient so night sides stay readable
     this._sunLight = new THREE.PointLight(0xffe0a0, 2.5, 50);
-    this._sunLight.position.set(0, 0, LAYER.planet);
+    this._sunLight.position.set(0, 0, 0);
     this.scene.add(this._sunLight);
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 
@@ -448,6 +449,7 @@ class ThreeJSRenderer {
     this._promoSpeed = 0.6;
     this._promoDisposables = null;
     this._promoModelKey = null;
+    this._promoOrbit = null;
     this._trajLine = null;
     this._mcPoints = null;
 
@@ -457,11 +459,6 @@ class ThreeJSRenderer {
     this._gltfPending = {};
     this._rockMats    = {};
 
-    // Focus mode (scene built lazily on first setFocusTarget)
-    this._focus       = null;
-    this._focusScene  = null;
-    this._focusCamera = new THREE.PerspectiveCamera(50, this.W / Math.max(1, this.H), 0.002, 400);
-    this._starDefaultQuat = this.starCamera.quaternion.clone();
     this.onModelApplied = null;   // page hook: (context, modelKey, noticeText)
 
     this._lastNow = performance.now();
@@ -491,7 +488,8 @@ class ThreeJSRenderer {
   }
 
   _buildStars() {
-    // Fixed background starfield — own scene + camera so pan/zoom never move it
+    // Background starfield — own scene + camera; render() copies only the main
+    // camera's rotation onto it, so the stars sit at infinity and never translate
     this.starScene = new THREE.Scene();
     this.starCamera = new THREE.PerspectiveCamera(60, this.W / Math.max(1, this.H), 1, 2000);
     this.starCamera.up.set(0, -1, 0);
@@ -531,7 +529,7 @@ class ThreeJSRenderer {
   _buildSun() {
     this._sunMaterial = new THREE.MeshBasicMaterial({ color: this._col('#ffd87a') });
     this.sun = new THREE.Mesh(new THREE.SphereGeometry(0.04, 32, 32), this._sunMaterial);
-    this.sun.position.set(0, 0, LAYER.sun);
+    this.sun.position.set(0, 0, 0);
     this.scene.add(this.sun);
 
     var mat = new THREE.SpriteMaterial({
@@ -543,7 +541,7 @@ class ThreeJSRenderer {
       depthWrite: false,
     });
     this.sunGlow = new THREE.Sprite(mat);
-    this.sunGlow.position.set(0, 0, LAYER.glow);
+    this.sunGlow.position.set(0, 0, 0);
     this.scene.add(this.sunGlow);
   }
 
@@ -556,7 +554,6 @@ class ThreeJSRenderer {
       opacity: opacity,
     });
     var line = new THREE.LineLoop(geo, mat);
-    line.position.z = LAYER.orbit;
     line.frustumCulled = false;
     return line;
   }
@@ -608,7 +605,7 @@ class ThreeJSRenderer {
       }
 
       // Glow sprite (Earth/Jupiter always, any planet during a conjunction).
-      // Group scale = r px in world units, so sprite scale is a constant ratio.
+      // Child of the scaled group, so its scale is a ratio of the body radius.
       var glowMat = new THREE.SpriteMaterial({
         map: self._glowTexture,
         color: self._col(def.color),
@@ -618,7 +615,7 @@ class ThreeJSRenderer {
         depthWrite: false,
       });
       var glow = new THREE.Sprite(glowMat);
-      glow.scale.setScalar(60 / def.r);
+      glow.scale.setScalar(6);
       glow.visible = !!def.glow;
       group.add(glow);
 
@@ -671,7 +668,9 @@ class ThreeJSRenderer {
     this._moonMesh.visible = false;
     this.scene.add(this._moonMesh);
 
-    // Geocentric orbit: unit circle scaled to MOON_A, re-centered on Earth per frame
+    // Geocentric orbit: unit circle scaled to MOON_A, re-centered on Earth per
+    // frame. rotation.x tips the circle by the real lunar inclination so it
+    // matches the z the page's moonPos() now produces.
     var N = 64, pts = new Float32Array(N * 3);
     for (var i = 0; i < N; i++) {
       var a = (i / N) * Math.PI * 2;
@@ -686,6 +685,7 @@ class ThreeJSRenderer {
       opacity: 0.15,
     }));
     this._moonOrbit.scale.setScalar(MOON_A);
+    this._moonOrbit.rotation.x = MOON_INCL;
     this._moonOrbit.frustumCulled = false;
     this._moonOrbit.visible = false;
     this.scene.add(this._moonOrbit);
@@ -715,7 +715,6 @@ class ThreeJSRenderer {
         self._sphereGeoLo,
         new THREE.MeshBasicMaterial({ color: self._col(RISK_COLOR[def.risk] || '#f0f4ff') })
       );
-      mesh.position.z = LAYER.neo;
       self.scene.add(mesh);
 
       var orbit = self._orbitLine(def.orbitPts, style.color, style.base);
@@ -758,7 +757,6 @@ class ThreeJSRenderer {
       depthWrite: false,
     });
     this.cone = new THREE.Mesh(geo, this._coneMat);
-    this.cone.position.z = LAYER.cone;
     this.cone.frustumCulled = false;
     this.cone.visible = false;
     this.scene.add(this.cone);
@@ -840,11 +838,11 @@ class ThreeJSRenderer {
     this.starCamera.aspect = this.W / this.H;
     this.starCamera.updateProjectionMatrix();
 
-    this._focusCamera.aspect = this.W / this.H;
-    this._focusCamera.updateProjectionMatrix();
+    this.camera.aspect = this.W / this.H;
+    this.camera.updateProjectionMatrix();
 
     this._starMaterial.size = 1.2 * this.DPR;
-    if (this._mpcPoints) this._mpcPoints.material.size = 2 * this.DPR;
+    if (this._mpcPoints) this._mpcPoints.material.size = 1.0 * this.DPR;
   }
 
   /**
@@ -864,23 +862,24 @@ class ThreeJSRenderer {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.setDrawRange(0, count);
     var mat = new THREE.PointsMaterial({
-      size: 2 * this.DPR,
+      size: 1.0 * this.DPR,
       sizeAttenuation: false,
       vertexColors: true,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.35,
       depthWrite: false,
     });
     this._mpcPoints = new THREE.Points(geo, mat);
-    this._mpcPoints.position.z = LAYER.mpc;
     this._mpcPoints.frustumCulled = false;
     this._mpcPoints.visible = false;
     this.scene.add(this._mpcPoints);
   }
 
-  /** Create the 3D mesh for a clicked MPC asteroid — a real NASA shape model
-   *  when the designation maps to a downloaded GLB, PBR procedural otherwise. */
-  promote(designation, name) {
+  /** Create the 3D mesh for a promoted/focused asteroid — a real NASA shape
+   *  model when the designation maps to a downloaded GLB, PBR procedural
+   *  otherwise. orbitPts (optional Float32Array, stride 3) draws the object's
+   *  full heliocentric orbit alongside the mesh. */
+  promote(designation, name, orbitPts) {
     this.demote();
     var seed  = _hashString(String(designation || 'asteroid'));
     var geo   = generateArchetypeGeometry(seed, 3);
@@ -892,6 +891,12 @@ class ThreeJSRenderer {
     this._promoMesh = group;
     this._promoDisposables = [geo];
     this._promoModelKey = null;
+
+    if (orbitPts && orbitPts.length >= 9) {
+      this._promoOrbit = this._orbitLine(orbitPts, '#6fb4ff', 0.5);
+      this._promoOrbit.visible = false;
+      this.scene.add(this._promoOrbit);
+    }
 
     var rand = _mulberry32(seed ^ 0x9e3779b9);
     this._promoAxis = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5);
@@ -929,7 +934,6 @@ class ThreeJSRenderer {
         transparent: true,
         opacity: 0.75,
       }));
-      this._trajLine.position.z = LAYER.traj;
       this._trajLine.frustumCulled = false;
       this.scene.add(this._trajLine);
     }
@@ -950,7 +954,6 @@ class ThreeJSRenderer {
         opacity: 0.25,
         depthWrite: false,
       }));
-      this._mcPoints.position.z = LAYER.mc;
       this._mcPoints.frustumCulled = false;
       this.scene.add(this._mcPoints);
     }
@@ -981,6 +984,12 @@ class ThreeJSRenderer {
       this._promoDisposables = null;
       this._promoMesh = null;
       this._promoModelKey = null;
+    }
+    if (this._promoOrbit) {
+      this.scene.remove(this._promoOrbit);
+      this._promoOrbit.geometry.dispose();
+      this._promoOrbit.material.dispose();
+      this._promoOrbit = null;
     }
     this._disposeTrajectory();
   }
@@ -1044,426 +1053,60 @@ class ThreeJSRenderer {
     });
   }
 
-  /* ── Focus mode ────────────────────────────────────────────────────────── */
-
-  _ensureFocusScene() {
-    if (this._focusScene) return;
-    var sc = new THREE.Scene();
-
-    this._focusSunLight = new THREE.DirectionalLight(0xfff1d6, 1.35);
-    sc.add(this._focusSunLight);
-    sc.add(this._focusSunLight.target);
-    sc.add(new THREE.AmbientLight(0xffffff, 0.22));
-
-    // Distant sun for scale reference — subdued so it never outshines the target
-    this._focusSun = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), this._sunMaterial);
-    sc.add(this._focusSun);
-    this._focusSunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this._glowTexture,
-      color: this._col('#ffcf8a'),
-      blending: THREE.AdditiveBlending,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-    }));
-    sc.add(this._focusSunGlow);
-
-    // Orbit split into traversed (solid cobalt) + ahead (faint dashed)
-    var CAP = 520;
-    this._focusOrbitCap = CAP;
-    function makeLine(mat) {
-      var g = new THREE.BufferGeometry();
-      var attr = new THREE.BufferAttribute(new Float32Array(CAP * 3), 3);
-      attr.setUsage(THREE.DynamicDrawUsage);
-      g.setAttribute('position', attr);
-      var ln = new THREE.Line(g, mat);
-      ln.frustumCulled = false;
-      sc.add(ln);
-      return ln;
-    }
-    this._focusOrbitSolid = makeLine(new THREE.LineBasicMaterial({
-      color: this._col('#1a6cf6'), transparent: true, opacity: 0.9,
-    }));
-    this._focusOrbitDash = makeLine(new THREE.LineDashedMaterial({
-      color: this._col('#6fb4ff'), transparent: true, opacity: 0.38,
-      dashSize: 0.05, gapSize: 0.04,
-    }));
-    this._focusOrbitDashDirty = -1;
-
-    // Soft glow marking the current position on the orbit (behind the target)
-    this._focusMarker = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: this._glowTexture,
-      color: this._col('#6fb4ff'),
-      blending: THREE.AdditiveBlending,
-      transparent: true,
-      opacity: 0.45,
-      depthWrite: false,
-    }));
-    sc.add(this._focusMarker);
-
-    this._focusScene = sc;
-  }
-
-  _buildFocusPlanet(index) {
-    var p = this.planets[index];
-    // wrapper (scaled, added to scene) → body (axial tilt) → spin (sphere+clouds)
-    // The Moon hangs off the wrapper, NOT the tilted body: its orbit follows
-    // the ecliptic (±5.1°), not Earth's 23.44° equatorial plane.
-    var wrapper = new THREE.Group();
-    var body = new THREE.Group();
-    body.rotation.x = (AXIAL_TILT[p.def.key] || 0) * Math.PI / 180;
-    wrapper.add(body);
-    var spin = new THREE.Group();
-    // Pre-tilt so the texture's poles align with ecliptic ±z, then spin about
-    // the texture's own pole via rotation.y (Euler XYZ applies Y before X)
-    var sphere = new THREE.Mesh(this._sphereGeoHi, p.sphere.material);
-    sphere.rotation.x = -Math.PI / 2;
-    spin.add(sphere);
-    var clouds = null;
-    if (p.clouds) {
-      clouds = new THREE.Mesh(p.clouds.geometry, p.clouds.material);
-      clouds.rotation.x = -Math.PI / 2;
-      spin.add(clouds);
-    }
-    body.add(spin);
-    var disposables = [];
-    var moon = null;
-    if (p.def.key === 'earth') {
-      var haloGeo = new THREE.SphereGeometry(1.08, 32, 16);
-      var haloMat = new THREE.MeshBasicMaterial({
-        color: 0x224488, transparent: true, opacity: 0.18,
-        side: THREE.BackSide, depthWrite: false,
-      });
-      body.add(new THREE.Mesh(haloGeo, haloMat));
-      disposables.push(haloGeo, haloMat);
-
-      // Moon at true relative size (0.273 R⊕), presentation orbit distance
-      var moonHolder = new THREE.Group();
-      moonHolder.rotation.x = MOON_INCL;             // slight z-depth on the orbit
-      moon = new THREE.Mesh(this._moonGeo, this._moonMaterial);
-      moon.rotation.x = -Math.PI / 2;
-      moon.scale.setScalar(MOON_RADIUS_RATIO);
-      moonHolder.add(moon);
-      wrapper.add(moonHolder);
-    }
-    if (p.ring) {
-      var ring = new THREE.Mesh(p.ring.geometry, p.ring.material);
-      ring.rotation.x = 0.35;                        // slight tilt for depth
-      body.add(ring);
-    }
-    return {
-      obj: wrapper, spin: spin,
-      sphereMesh: sphere, cloudsMesh: clouds, key: p.def.key, moon: moon,
-      spinAxis: new THREE.Vector3(0, 0, 1), spinSpeed: 0,
-      // Real relative scale, capped at 2× Earth (Earth=0.14, Jupiter=0.28)
-      // so gas giants stay framable
-      radius: Math.min((PLANET_REAL_RADIUS[p.def.key] || 1) * FOCUS_EARTH_RADIUS, 0.28),
-      disposables: disposables, modelKey: null,
-    };
-  }
-
-  /** Focus bundle for the Moon itself: real texture, tidally-locked spin, Earth
-   *  companion at the same presentation distance used in Earth's focus view. */
-  _buildFocusLuna() {
-    var group = new THREE.Group();
-    var spin = new THREE.Group();
-    var sphere = new THREE.Mesh(this._moonGeo, this._moonMaterial);
-    sphere.rotation.x = -Math.PI / 2;
-    spin.add(sphere);
-    group.add(spin);
-    var earthP = this._earthIdx >= 0 ? this.planets[this._earthIdx] : null;
-    var earth = null;
-    if (earthP) {
-      earth = new THREE.Mesh(this._sphereGeoHi, earthP.sphere.material);
-      earth.rotation.x = -Math.PI / 2;
-      earth.scale.setScalar(1 / MOON_RADIUS_RATIO);  // child units = Moon radii
-      group.add(earth);
-    }
-    return {
-      obj: group, spin: spin,
-      sphereMesh: sphere, cloudsMesh: null, key: null, moon: null,
-      earthCompanion: earth,
-      spinAxis: new THREE.Vector3(0, 0, 1), spinSpeed: 0,
-      radius: MOON_RADIUS_RATIO * FOCUS_EARTH_RADIUS,
-      disposables: [], modelKey: null,
-    };
-  }
-
-  /**
-   * Enter focus on a target. desc arrives fully solved from the page:
-   *   { kind:'planet'|'neo'|'mpc', index?, designation?, name?,
-   *     orbitPts: Float32Array — closed heliocentric loop, ordered along motion }
-   */
-  setFocusTarget(desc) {
-    this.clearFocusTarget();
-    this._ensureFocusScene();
-
-    var bundle, procMesh = null, spinRef = null;
-    if (desc.kind === 'planet') {
-      bundle = this._buildFocusPlanet(desc.index);
-    } else if (desc.kind === 'luna') {
-      bundle = this._buildFocusLuna();
-      // Orbit shown is around EARTH, at the presentation distance: a circle
-      // through the Moon (origin), centred on the Earth companion. Ordered
-      // along motion (angle grows with time).
-      var LP = MOON_FOCUS_DIST_ER * FOCUS_EARTH_RADIUS, SEG = 256;
-      var lpts = new Float32Array(SEG * 3);
-      for (var li = 0; li < SEG; li++) {
-        var la = (li / SEG) * Math.PI * 2;
-        lpts[li * 3] = LP * Math.cos(la);
-        lpts[li * 3 + 1] = LP * Math.sin(la);
-      }
-      desc.orbitPts = lpts;
-    } else {
-      var seed = _hashString(String(desc.designation || desc.name || 'asteroid'));
-      var geo  = generateArchetypeGeometry(seed, 3);
-      procMesh = new THREE.Mesh(geo, this._getRockMaterial(seed));
-      spinRef  = new THREE.Group();
-      spinRef.add(procMesh);
-      var group = new THREE.Group();
-      group.add(spinRef);
-      var rand = _mulberry32(seed ^ 0x51ed270b);
-      var axis = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5);
-      if (axis.lengthSq() < 1e-6) axis.set(0.4, 1, 0.3);
-      bundle = {
-        obj: group, spin: spinRef,
-        spinAxis: axis.normalize(), spinSpeed: 0.15 + rand() * 0.25,
-        radius: 0.11, disposables: [geo], modelKey: null,
-      };
-    }
-
-    bundle.desc = desc;
-    bundle.obj.scale.setScalar(bundle.radius);
-    this._focusScene.add(bundle.obj);
-
-    // Dash pattern proportional to orbit size so big orbits still read dashed
-    var mR = 0;
-    for (var q = 0; q < desc.orbitPts.length; q += 3) {
-      var ax = Math.abs(desc.orbitPts[q]), ay = Math.abs(desc.orbitPts[q + 1]);
-      if (ax > mR) mR = ax;
-      if (ay > mR) mR = ay;
-    }
-    this._focusOrbitDash.material.dashSize = Math.max(0.03, mR * 0.02);
-    this._focusOrbitDash.material.gapSize  = Math.max(0.022, mR * 0.015);
-    this._focusOrbitDashDirty = -1;
-
-    this._focus = bundle;
-
-    // Swap in the NASA GLB when one exists for this designation. _focus is
-    // already assigned, so a cache hit (synchronous cb) also lands correctly.
-    if (desc.kind !== 'planet') {
-      var key = _modelKeyFor(desc.designation, desc.name);
-      if (key) {
-        var self = this;
-        this._loadModel(key, function (inst) {
-          if (!inst || self._focus !== bundle) return;
-          spinRef.remove(procMesh);
-          spinRef.add(inst);
-          bundle.modelKey = key;
-          if (self.onModelApplied) self.onModelApplied('focus', key, MODEL_NOTICE[key]);
-        });
-      }
-    }
-  }
-
-  clearFocusTarget() {
-    if (!this._focus) return;
-    this._focusScene.remove(this._focus.obj);
-    var dis = this._focus.disposables || [];
-    for (var i = 0; i < dis.length; i++) dis[i].dispose();
-    this._focus = null;
-    this.starCamera.quaternion.copy(this._starDefaultQuat);
-  }
-
-  /** Visual radius (scene units) of the current focus object — the page uses
-   *  it to size the "did the double-click land on the body?" test. */
-  getFocusObjectRadius() {
-    return this._focus ? this._focus.radius : FOCUS_EARTH_RADIUS;
-  }
-
-  /** Screen position (CSS px) + apparent radius of the Moon while Earth is in
-   *  focus, or null. Lets the page turn a click on the Moon into a re-focus. */
-  getFocusMoonScreenPos() {
-    var fb = this._focus;
-    if (!fb || !fb.moon) return null;
-    var v = new THREE.Vector3();
-    fb.moon.getWorldPosition(v);
-    var dist = v.distanceTo(this._focusCamera.position);
-    v.project(this._focusCamera);
-    if (v.z > 1) return null;                        // behind the camera
-    var worldR = MOON_RADIUS_RATIO * fb.radius;
-    var halfFov = this._focusCamera.fov * 0.5 * Math.PI / 180;
-    return {
-      x: (v.x * 0.5 + 0.5) * this.W,
-      y: (-v.y * 0.5 + 0.5) * this.H,
-      r: (worldR / (Math.max(1e-6, dist) * Math.tan(halfFov))) * (this.H / 2),
-    };
-  }
-
-  _renderFocusMode(state, frame, dt) {
-    var fb = this._focus;
-    var f  = frame.focus;
-    var x = f.x, y = f.y;
-    var mA = moonOrbitAngle(state.simTime);
-
-    // Rotation of the focused body: sidereal for planets, tidally locked for
-    // the Moon (set absolutely — no drift), procedural tumble for asteroids
-    if (fb.key && SIDEREAL_DAY[fb.key]) {
-      var pAng = (Math.PI * 2 / SIDEREAL_DAY[fb.key]) * state.simTime;
-      fb.sphereMesh.rotation.y = pAng;
-      if (fb.cloudsMesh) fb.cloudsMesh.rotation.y = pAng * 1.006;
-    } else if (fb.desc.kind === 'luna') {
-      fb.sphereMesh.rotation.y = -mA;
-    } else if (fb.spin) {
-      fb.spin.rotateOnAxis(fb.spinAxis, fb.spinSpeed * dt);
-    }
-
-    // Earth focus: Moon orbits live at the presentation distance
-    if (fb.moon) {
-      fb.moon.position.set(
-        MOON_FOCUS_DIST_ER * Math.cos(mA),
-        MOON_FOCUS_DIST_ER * Math.sin(mA), 0);
-      fb.moon.rotation.y = -mA;                      // tidally locked
-    }
-    // Moon focus: Earth companion sits opposite the Moon's orbital phase
-    if (fb.earthCompanion) {
-      var eD = MOON_FOCUS_DIST_ER / MOON_RADIUS_RATIO;   // child units = Moon radii
-      fb.earthCompanion.position.set(-eD * Math.cos(mA), -eD * Math.sin(mA), 0);
-      fb.earthCompanion.rotation.y = (Math.PI * 2 / SIDEREAL_DAY.earth) * state.simTime;
-    }
-
-    // Scene is target-centered. The sun sits along the real solar direction,
-    // pulled in to ≤ 8 camera-radii so it never leaves the frustum (far=400),
-    // with its disc rescaled to keep the subtended angle; brightness of the
-    // corona rises as the target gets closer to the sun.
-    var sd = Math.max(1e-6, Math.hypot(x, y));
-    var R_SUN_AU = 0.00465;
-    var sunSceneR = R_SUN_AU * f.camRadius / Math.max(0.01, sd);
-    var sunDirX = -x / sd, sunDirY = -y / sd;
-    var sunDist = Math.min(sd, f.camRadius * 8);
-    var distScale = sunDist / Math.max(0.001, sd);
-    this._focusSun.position.set(sunDirX * sunDist, sunDirY * sunDist, 0);
-    this._focusSun.scale.setScalar(sunSceneR * distScale / 0.04);
-    var glowR = sunSceneR * 4.5;
-    this._focusSunGlow.position.set(sunDirX * sunDist, sunDirY * sunDist, 0);
-    this._focusSunGlow.scale.set(glowR / 0.04, glowR / 0.04, 1);
-    this._focusSunGlow.material.opacity = Math.min(0.8, 0.3 + 0.5 / Math.max(1, sd));
-    // Key light from the sun's direction, lifted off the plane for modeling
-    this._focusSunLight.position.set(-x / sd * 5, -y / sd * 5, -1.8);
-    this._focusSunLight.target.position.set(0, 0, 0);
-
-    // Split the orbit at the vertex nearest the current position:
-    // trailing half solid (just traversed), leading half dashed (to come).
-    // ox/oy = target position in the orbit's own frame — heliocentric for
-    // sun-orbiting targets, presentation-geocentric for the Moon.
-    var ox = x, oy = y;
-    if (fb.desc.kind === 'luna') {
-      var LP2 = MOON_FOCUS_DIST_ER * FOCUS_EARTH_RADIUS;
-      ox = LP2 * Math.cos(mA); oy = LP2 * Math.sin(mA);
-    }
-    var pts = fb.desc.orbitPts;
-    var N = Math.min((pts.length / 3) | 0, this._focusOrbitCap - 2);
-    var best = 0, bd = Infinity, i, dx, dy;
-    for (i = 0; i < N; i++) {
-      dx = pts[i * 3] - ox; dy = pts[i * 3 + 1] - oy;
-      var dd = dx * dx + dy * dy;
-      if (dd < bd) { bd = dd; best = i; }
-    }
-    var half = N >> 1;
-    var solidAttr = this._focusOrbitSolid.geometry.attributes.position;
-    var dashAttr  = this._focusOrbitDash.geometry.attributes.position;
-    var k, idx;
-    for (k = 0; k <= half; k++) {
-      idx = ((best - half + k) % N + N) % N;
-      solidAttr.setXYZ(k, pts[idx * 3] - ox, pts[idx * 3 + 1] - oy, 0);
-    }
-    solidAttr.setXYZ(half + 1, 0, 0, 0);           // land exactly on the object
-    this._focusOrbitSolid.geometry.setDrawRange(0, half + 2);
-    solidAttr.needsUpdate = true;
-
-    dashAttr.setXYZ(0, 0, 0, 0);
-    for (k = 1; k <= half; k++) {
-      idx = (best + k) % N;
-      dashAttr.setXYZ(k, pts[idx * 3] - ox, pts[idx * 3 + 1] - oy, 0);
-    }
-    this._focusOrbitDash.geometry.setDrawRange(0, half + 1);
-    dashAttr.needsUpdate = true;
-    // Dash lengths are translation-invariant — recompute only when the split moves
-    if (this._focusOrbitDashDirty !== best) {
-      this._focusOrbitDash.computeLineDistances();
-      this._focusOrbitDashDirty = best;
-    }
-
-    // Camera: spherical orbit around the target (z is the pole axis)
-    var th = f.camTheta, ph = f.camPhi, r = f.camRadius;
-    var sp = Math.sin(ph);
-    this._focusCamera.position.set(
-      r * sp * Math.cos(th),
-      r * sp * Math.sin(th),
-      -r * Math.cos(ph)
-    );
-    this._focusCamera.up.set(0, 0, -1);
-    this._focusCamera.lookAt(0, 0, 0);
-
-    this._focusMarker.scale.setScalar(Math.max(0.06, r * 0.28));
-
-    // Stars: slightly brighter, and they follow the camera orientation
-    this._starMaterial.opacity = 1.0;
-    this._starMaterial.size = 1.6 * this.DPR;
-    this.starCamera.quaternion.copy(this._focusCamera.quaternion);
-
-    this.renderer.clear();
-    this.renderer.render(this.starScene, this.starCamera);
-    this.renderer.clearDepth();
-    this.renderer.render(this._focusScene, this._focusCamera);
-
-    // Overlay: nothing but the transition fade (HUD is HTML on the page)
-    var g = this.octx;
-    g.setTransform(this.DPR, 0, 0, this.DPR, 0, 0);
-    g.clearRect(0, 0, this.W, this.H);
-    if (frame.focusFade > 0) {
-      g.fillStyle = 'rgba(0,0,0,' + Math.min(1, frame.focusFade).toFixed(3) + ')';
-      g.fillRect(0, 0, this.W, this.H);
-    }
-  }
-
   /* ── Per-frame update ──────────────────────────────────────────────────── */
 
-  _updateCamera(state) {
-    var s = state.pxPerAU * state.zoom;               // CSS px per AU
-    this._s = s;
-    var halfW = this.W / (2 * s), halfH = this.H / (2 * s);
-    var cx = -state.panX / s, cy = -state.panY / s;
-    this.camera.left = -halfW; this.camera.right = halfW;
-    this.camera.top = halfH;   this.camera.bottom = -halfH;
-    this.camera.position.set(cx, cy, -CAM_DIST);
-    this.camera.lookAt(cx, cy, 0);
-    this.camera.updateProjectionMatrix();
+  /** Position the camera from the page-owned spherical state (frame.cam) and
+   *  refresh the shared view-projection matrix the page's ws() reads. */
+  _updateCamera(cam) {
+    var cp = Math.cos(cam.phi), sp = Math.sin(cam.phi);
+    this.camera.position.set(
+      cam.tx + cam.dist * cp * Math.sin(cam.theta),
+      cam.ty + cam.dist * cp * Math.cos(cam.theta),
+      cam.tz + cam.dist * sp
+    );
+    this.camera.up.set(0, 0, 1);
+    this.camera.lookAt(cam.tx, cam.ty, cam.tz);
+    this.camera.updateMatrixWorld(true);
+    this._camPos.copy(this.camera.position);
+    this._vpMat.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this._vpArray.set(this._vpMat.elements);
+    // AU per pixel at distance 1 — multiply by a body's camera distance
+    this._wpp1 = 2 * Math.tan(FOV_DEG * Math.PI / 360) / this.H;
   }
 
-  // Same projection as the page's ws() — screen coords in CSS px
-  _ws(state, x, y) {
-    return {
-      x: this.W / 2 + state.panX + x * this._s,
-      y: this.H / 2 + state.panY + y * this._s,
-    };
+  /** The shared VP matrix (Float32Array 16, column-major). Same array object
+   *  every call — the page keeps one reference and reads fresh values. */
+  getVPMatrix() {
+    return this._vpArray;
+  }
+
+  // World → CSS-px screen coords through the current VP matrix.
+  // Returns null when the point is behind the camera.
+  _ws(x, y, z) {
+    var e = this._vpArray;
+    var cw = e[3] * x + e[7] * y + e[11] * z + e[15];
+    if (cw <= 0) return null;
+    var cx = (e[0] * x + e[4] * y + e[8] * z + e[12]) / cw;
+    var cy = (e[1] * x + e[5] * y + e[9] * z + e[13]) / cw;
+    return { x: (cx + 1) * 0.5 * this.W, y: (1 - cy) * 0.5 * this.H };
+  }
+
+  // Camera distance to a world point (AU) — for the min-px scale rule
+  _camDist(x, y, z) {
+    var dx = x - this._camPos.x, dy = y - this._camPos.y, dz = z - this._camPos.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
 
   _drawSun() {
-    var R_SUN_AU = 0.00465;                           // real solar radius in AU
-    var s = this._s;                                  // px per AU
-    var sunPx = R_SUN_AU * s;                         // true on-screen radius
-    var finalPx = Math.max(4, sunPx);                 // ≥ 4px so it stays visible
-    // px → world units → scale of the r=0.04 base geometry
-    this.sun.scale.setScalar(finalPx / s / 0.04);
-    // Glow: 8× the real disc, but never under 80px on screen (sprite scale
-    // is world size directly — no base-geometry divisor)
-    var glowWorld = Math.max(80 / s, R_SUN_AU * 8);
+    var wpp = this._wpp1 * this._camPos.length();      // sun sits at the origin
+    var r = Math.max(REAL_RADIUS_AU.sun, MIN_PX.sun * wpp);
+    this.sun.scale.setScalar(r / 0.04);                // base geometry radius 0.04
+    // Corona scales WITH the disc (same factor), never in fixed px
+    var glowWorld = r * 9;
     this.sunGlow.scale.set(glowWorld, glowWorld, 1);
   }
 
   _drawPlanets(state, frame, dt) {
-    var s = this._s;
     var showOrbits = state.showPlanets && state.showOrbits;
     for (var i = 0; i < this.planets.length; i++) {
       var p = this.planets[i];
@@ -1471,16 +1114,24 @@ class ThreeJSRenderer {
       p.group.visible = f.visible;
       p.orbit.visible = showOrbits && !!(state.planetToggles && state.planetToggles[p.def.key]);
       if (!f.visible) continue;
-      p.group.position.set(f.x, f.y, LAYER.planet);
-      p.group.scale.setScalar(p.def.r / s);
+      p.group.position.set(f.x, f.y, 0);
+      // Real radius with a min-px floor: a fixed dot from afar, true
+      // perspective size up close (ring + halo are children — they inherit)
+      var wpp = this._wpp1 * this._camDist(f.x, f.y, 0);
+      var realR = REAL_RADIUS_AU[p.def.key] || 2e-5;
+      var r = Math.max(realR, MIN_PX.planet * wpp);
+      p.group.scale.setScalar(r);
       // Sidereal rotation — set absolutely from simTime (days) so variable
       // simulation speed never accumulates drift
       var angleRad = (Math.PI * 2 / SIDEREAL_DAY[p.def.key]) * state.simTime;
       p.sphere.rotation.y = angleRad;
       if (p.clouds) p.clouds.rotation.y = angleRad * 1.006;
       var conj = !!f.conj;
-      p.glow.visible = !!p.def.glow || conj;
-      p.glow.scale.setScalar(conj ? 10 : 60 / p.def.r);
+      // The additive glow sprite would wash out the textured close-up, so it
+      // fades out once the true size beats the min-px floor
+      var closeUp = realR > MIN_PX.planet * wpp;
+      p.glow.visible = (!!p.def.glow || conj) && !closeUp;
+      p.glow.scale.setScalar(conj ? 10 : 6);
       p.glow.material.opacity = conj ? 0.5 : 0.4;
     }
   }
@@ -1489,43 +1140,47 @@ class ThreeJSRenderer {
     var lf = frame.luna;
     var earth = this._earthIdx >= 0 ? frame.planets[this._earthIdx] : null;
     var visible = !!(lf && lf.visible && earth && earth.visible);
-    this._lunaState = visible
-      ? { x: lf.x, y: lf.y, ex: earth.x, ey: earth.y }
-      : null;
     this._moonMesh.visible = visible;
-    this._moonOrbit.visible = visible && !!state.showOrbits;
-    if (!visible) return;
-    var s = this._s;
-    this._moonMesh.position.set(lf.x, lf.y, LAYER.planet);
-    // ≥2px on screen, proportional to Earth's 4px disc (Moon ≈ 0.273 R⊕)
-    this._moonMesh.scale.setScalar(Math.max(2, 4 * MOON_RADIUS_RATIO) / s);
+    if (!visible) { this._lunaState = null; this._moonOrbit.visible = false; return; }
+    this._moonMesh.position.set(lf.x, lf.y, lf.z);
+    var wpp = this._wpp1 * this._camDist(lf.x, lf.y, lf.z);
+    var r = Math.max(REAL_RADIUS_AU.moon, MIN_PX.moon * wpp);
+    this._moonMesh.scale.setScalar(r);
+    this._lunaState = { x: lf.x, y: lf.y, z: lf.z, ex: earth.x, ey: earth.y, rPx: r / wpp };
+    this._moonOrbit.visible = !!state.showOrbits;
     // Tidally locked: same face always toward Earth
     this._moonMesh.rotation.y = -moonOrbitAngle(state.simTime);
-    this._moonOrbit.position.set(earth.x, earth.y, LAYER.orbit);
+    this._moonOrbit.position.set(earth.x, earth.y, 0);
   }
 
-  /** Screen position of the Moon in the main map, CSS px — used by the page
-   *  for hover/click hit testing. sep = on-screen distance to Earth's centre
-   *  so the page can skip the check while the Moon is buried in Earth's disc. */
-  getLunaScreenPos(state) {
+  /** Screen position (CSS px) + apparent radius of the Moon in the map — used
+   *  by the page for hover/click hit testing. sep = on-screen distance to
+   *  Earth's centre so the page can skip the check while the Moon is buried
+   *  in Earth's disc. Null when hidden or behind the camera. */
+  getLunaScreenPos() {
     var l = this._lunaState;
-    if (!l || state.focusTarget) return null;
-    var s = state.pxPerAU * state.zoom;
-    var x = this.W / 2 + state.panX + l.x * s;
-    var y = this.H / 2 + state.panY + l.y * s;
-    var ex = this.W / 2 + state.panX + l.ex * s;
-    var ey = this.H / 2 + state.panY + l.ey * s;
-    return { x: x, y: y, r: 2, sep: Math.hypot(x - ex, y - ey) };
+    if (!l) return null;
+    var s = this._ws(l.x, l.y, l.z);
+    if (!s) return null;
+    var es = this._ws(l.ex, l.ey, 0);
+    return {
+      x: s.x, y: s.y,
+      r: Math.max(3, l.rPx || 3),
+      sep: es ? Math.hypot(s.x - es.x, s.y - es.y) : 1e9,
+    };
   }
 
   _drawNEOs(state, frame) {
-    var s = this._s;
     for (var i = 0; i < this.neos.length; i++) {
       var n = this.neos[i];
       var f = frame.neos[i];
       var isSel = i === frame.selIdx, isHov = i === frame.hovIdx;
-      n.mesh.position.set(f.x, f.y, LAYER.neo);
-      n.mesh.scale.setScalar((isSel ? 4 : isHov ? 3.5 : 2.4) / s);
+      n.mesh.visible = true;
+      n.orbit.visible = true;
+      n.mesh.position.set(f.x, f.y, f.z);
+      // NEOs have no reliable physical radius — pure min-px dots
+      var wpp = this._wpp1 * this._camDist(f.x, f.y, f.z);
+      n.mesh.scale.setScalar((isSel ? MIN_PX.neo : isHov ? 3.5 : 2.4) * wpp);
       n.orbit.material.opacity = isSel ? n.style.sel : n.style.base;
     }
     var sel = frame.selIdx >= 0 ? this.neos[frame.selIdx] : null;
@@ -1535,10 +1190,11 @@ class ThreeJSRenderer {
       var f2 = frame.neos[frame.selIdx];
       var riskCol = this._col(RISK_COLOR[sel.def.risk] || '#f0f4ff');
       var pulse = 1.8 + 0.4 * Math.sin(state.simTime * 3);
-      this._selWire.position.set(f2.x, f2.y, LAYER.neo);
-      this._selWire.scale.setScalar((4 / s) * pulse);
+      var wpp2 = this._wpp1 * this._camDist(f2.x, f2.y, f2.z);
+      this._selWire.position.set(f2.x, f2.y, f2.z);
+      this._selWire.scale.setScalar(4 * wpp2 * pulse);
       this._selWire.material.color.copy(riskCol);
-      this._selLight.position.set(f2.x, f2.y, LAYER.neo);
+      this._selLight.position.set(f2.x, f2.y, f2.z);
       this._selLight.color.copy(riskCol);
     }
   }
@@ -1551,13 +1207,13 @@ class ThreeJSRenderer {
     var pos = this.cone.geometry.attributes.position;
     var arr = pos.array;
     for (var k = 0; k < N; k++) {
-      arr[k * 3] = c.upper[k * 2];
-      arr[k * 3 + 1] = c.upper[k * 2 + 1];
-      arr[k * 3 + 2] = 0;
+      arr[k * 3] = c.upper[k * 3];
+      arr[k * 3 + 1] = c.upper[k * 3 + 1];
+      arr[k * 3 + 2] = c.upper[k * 3 + 2];
       var o = (this._coneN + k) * 3;
-      arr[o] = c.lower[k * 2];
-      arr[o + 1] = c.lower[k * 2 + 1];
-      arr[o + 2] = 0;
+      arr[o] = c.lower[k * 3];
+      arr[o + 1] = c.lower[k * 3 + 1];
+      arr[o + 2] = c.lower[k * 3 + 2];
     }
     pos.needsUpdate = true;
     this._coneMat.color = this._col(c.risky ? '#ff6b2b' : '#1a6cf6');
@@ -1577,13 +1233,15 @@ class ThreeJSRenderer {
       this._promoMesh.visible = active;
       if (active) {
         var pr = frame.promoted;
-        // Artistic size: 0.03 AU, clamped to stay ≥ 8px on screen when zoomed out
-        var scale = Math.max(0.03, 8 / this._s);
-        this._promoMesh.position.set(pr.x, pr.y, LAYER.promoted);
+        // Real radius estimated from H (page-computed), min-px floor of 8px
+        var wpp = this._wpp1 * this._camDist(pr.x, pr.y, pr.z);
+        var scale = Math.max(pr.radius || 0, 8 * wpp);
+        this._promoMesh.position.set(pr.x, pr.y, pr.z);
         this._promoMesh.scale.setScalar(scale);
         this._promoMesh.rotateOnAxis(this._promoAxis, this._promoSpeed * dt);
       }
     }
+    if (this._promoOrbit) this._promoOrbit.visible = active;
     if (this._trajLine) this._trajLine.visible = active;
     if (this._mcPoints) this._mcPoints.visible = active;
   }
@@ -1595,7 +1253,7 @@ class ThreeJSRenderer {
     g.setTransform(this.DPR, 0, 0, this.DPR, 0, 0);
     g.clearRect(0, 0, this.W, this.H);
 
-    // Planet labels
+    // Planet labels — _ws() returns null behind the camera: skip those
     if (state.showPlanets) {
       g.fillStyle = 'rgba(200,210,230,0.65)';
       g.font = '10px "JetBrains Mono", monospace';
@@ -1603,7 +1261,8 @@ class ThreeJSRenderer {
         var f = frame.planets[i];
         if (!f.visible) continue;
         var p = this.planets[i];
-        var sp = this._ws(state, f.x, f.y);
+        var sp = this._ws(f.x, f.y, 0);
+        if (!sp) continue;
         g.fillText(p.def.name, sp.x + p.def.r + 6, sp.y + 3);
       }
     }
@@ -1613,18 +1272,20 @@ class ThreeJSRenderer {
     // Jupiter Δv vector
     var jv = frame.jup;
     if (jv && jv.active) {
-      var a = this._ws(state, jv.ax, jv.ay), b = this._ws(state, jv.bx, jv.by);
-      g.strokeStyle = 'rgba(255,107,43,0.75)';
-      g.lineWidth = 1.2;
-      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
-      var ang = Math.atan2(b.y - a.y, b.x - a.x);
-      g.beginPath();
-      g.moveTo(b.x, b.y); g.lineTo(b.x - 6 * Math.cos(ang - 0.4), b.y - 6 * Math.sin(ang - 0.4));
-      g.moveTo(b.x, b.y); g.lineTo(b.x - 6 * Math.cos(ang + 0.4), b.y - 6 * Math.sin(ang + 0.4));
-      g.stroke();
-      g.fillStyle = 'rgba(255,107,43,0.9)';
-      g.font = '10px "JetBrains Mono", monospace';
-      g.fillText('+Δv', b.x + 4, b.y - 4);
+      var a = this._ws(jv.ax, jv.ay, jv.az || 0), b = this._ws(jv.bx, jv.by, jv.bz || 0);
+      if (a && b) {
+        g.strokeStyle = 'rgba(255,107,43,0.75)';
+        g.lineWidth = 1.2;
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+        var ang = Math.atan2(b.y - a.y, b.x - a.x);
+        g.beginPath();
+        g.moveTo(b.x, b.y); g.lineTo(b.x - 6 * Math.cos(ang - 0.4), b.y - 6 * Math.sin(ang - 0.4));
+        g.moveTo(b.x, b.y); g.lineTo(b.x - 6 * Math.cos(ang + 0.4), b.y - 6 * Math.sin(ang + 0.4));
+        g.stroke();
+        g.fillStyle = 'rgba(255,107,43,0.9)';
+        g.font = '10px "JetBrains Mono", monospace';
+        g.fillText('+Δv', b.x + 4, b.y - 4);
+      }
     }
 
     // Selected / hovered NEO labels
@@ -1635,32 +1296,35 @@ class ThreeJSRenderer {
       var idx = labelIdx[li];
       if (idx < 0 || (li === 1 && idx === frame.selIdx)) continue;
       var nf = frame.neos[idx];
-      var np = this._ws(state, nf.x, nf.y);
+      var np = this._ws(nf.x, nf.y, nf.z);
+      if (!np) continue;
       g.fillText(this.neos[idx].def.name, np.x + 8, np.y - 6);
     }
 
     // Promoted asteroid: dashed Earth line + LD label + pulsing ring
     var pr = frame.promoted;
     if (pr && pr.active) {
-      var sa = this._ws(state, pr.x, pr.y), se = this._ws(state, pr.ex, pr.ey);
-      g.save();
-      g.setLineDash([3, 5]);
-      g.strokeStyle = 'rgba(26,108,246,0.45)';
-      g.lineWidth = 0.9;
-      g.beginPath(); g.moveTo(sa.x, sa.y); g.lineTo(se.x, se.y); g.stroke();
-      g.setLineDash([]);
-      g.fillStyle = 'rgba(26,108,246,0.9)';
-      g.font = '9px "JetBrains Mono", monospace';
-      g.fillText(pr.distLD + ' LD', (sa.x + se.x) / 2 + 4, (sa.y + se.y) / 2 - 3);
+      var sa = this._ws(pr.x, pr.y, pr.z), se = this._ws(pr.ex, pr.ey, 0);
+      if (sa && se) {
+        g.save();
+        g.setLineDash([3, 5]);
+        g.strokeStyle = 'rgba(26,108,246,0.45)';
+        g.lineWidth = 0.9;
+        g.beginPath(); g.moveTo(sa.x, sa.y); g.lineTo(se.x, se.y); g.stroke();
+        g.setLineDash([]);
+        g.fillStyle = 'rgba(26,108,246,0.9)';
+        g.font = '9px "JetBrains Mono", monospace';
+        g.fillText(pr.distLD + ' LD', (sa.x + se.x) / 2 + 4, (sa.y + se.y) / 2 - 3);
 
-      var pulse = 5 + Math.sin(state.simTime * 3) * 2;
-      g.beginPath();
-      g.arc(sa.x, sa.y, pulse + 7, 0, Math.PI * 2);
-      g.strokeStyle = '#1a6cf6';
-      g.lineWidth = 1.5;
-      g.globalAlpha = 0.4 + 0.2 * Math.sin(state.simTime * 3);
-      g.stroke();
-      g.restore();
+        var pulse = 5 + Math.sin(state.simTime * 3) * 2;
+        g.beginPath();
+        g.arc(sa.x, sa.y, pulse + 7, 0, Math.PI * 2);
+        g.strokeStyle = '#1a6cf6';
+        g.lineWidth = 1.5;
+        g.globalAlpha = 0.4 + 0.2 * Math.sin(state.simTime * 3);
+        g.stroke();
+        g.restore();
+      }
     }
 
     // Hovered MPC asteroid highlight dot
@@ -1669,12 +1333,6 @@ class ThreeJSRenderer {
       g.beginPath();
       g.arc(frame.hoverMPC.sx, frame.hoverMPC.sy, 3.5, 0, Math.PI * 2);
       g.fill();
-    }
-
-    // Focus-mode transition: fade through black
-    if (frame.focusFade > 0) {
-      g.fillStyle = 'rgba(0,0,0,' + Math.min(1, frame.focusFade).toFixed(3) + ')';
-      g.fillRect(0, 0, this.W, this.H);
     }
   }
 
@@ -1686,7 +1344,11 @@ class ThreeJSRenderer {
       var pts = conjs[c].pts;
       if (!pts || pts.length < 2) continue;
       var sp = [];
-      for (var i = 0; i < pts.length; i++) sp.push(this._ws(state, pts[i].x, pts[i].y));
+      for (var i = 0; i < pts.length; i++) {
+        var s = this._ws(pts[i].x, pts[i].y, 0);
+        if (s) sp.push(s);
+      }
+      if (sp.length < 2) continue;
       g.setLineDash([4, 6]);
       g.strokeStyle = 'rgba(255,255,255,0.3)';
       g.lineWidth = 0.8;
@@ -1711,35 +1373,28 @@ class ThreeJSRenderer {
   /* ── Main render ───────────────────────────────────────────────────────── */
 
   /**
-   * @param {object} state  the page's global state{} (zoom, pan, toggles, simTime…)
+   * @param {object} state  the page's global state{} (toggles, simTime…)
    * @param {object} frame  flat per-frame data computed by the page:
+   *   cam      {tx,ty,tz, dist, theta, phi}   — camera spherical state (page-owned)
    *   planets  [{x,y,visible,conj}]           aligned with opts.planets
-   *   neos     [{x,y}], selIdx, hovIdx        aligned with opts.neos
-   *   cone     {active, risky, count, upper:Float32Array, lower:Float32Array}
-   *   jup      {active, ax,ay,bx,by}
+   *   neos     [{x,y,z}], selIdx, hovIdx      aligned with opts.neos
+   *   luna     {x,y,z,visible}
+   *   cone     {active, risky, count, upper:Float32Array(N·3), lower:Float32Array(N·3)}
+   *   jup      {active, ax,ay,az, bx,by,bz}
    *   conjs    [{pts:[{x,y},…]}]
    *   mpcDirty boolean — MPC positions array was refreshed this frame
    *   hoverMPC {sx,sy} | null
-   *   promoted {active, x,y, ex,ey, distLD}
-   *   focus    {active, shown, x,y, camTheta, camPhi, camRadius} — focus mode
-   *   focusFade number 0..1 — fade-to-black overlay while entering/leaving focus
+   *   promoted {active, x,y,z, ex,ey, distLD, radius}
+   *
+   * Focus mode is pure camera state on the page side — this file renders the
+   * one and only scene every frame, whatever the camera is doing.
    */
   render(state, frame) {
     var now = performance.now();
     var dt = Math.min(0.1, (now - this._lastNow) / 1000);
     this._lastNow = now;
 
-    if (frame.focus && frame.focus.shown && this._focus) {
-      this._renderFocusMode(state, frame, dt);
-      return;
-    }
-
-    // Restore star defaults (focus mode brightens/reorients the field)
-    this._starMaterial.opacity = 0.9;
-    this._starMaterial.size = 1.2 * this.DPR;
-    this.starCamera.quaternion.copy(this._starDefaultQuat);
-
-    this._updateCamera(state);
+    this._updateCamera(frame.cam);
     this._drawSun();
     this._drawPlanets(state, frame, dt);
     this._drawMoon(state, frame);
@@ -1747,6 +1402,9 @@ class ThreeJSRenderer {
     this._drawConeMesh(frame);
     this._drawMPCAsteroids(state, frame);
     this._drawPromotedObject(state, frame, dt);
+
+    // Stars live at infinity: copy ONLY the rotation, never the translation
+    this.starCamera.quaternion.copy(this.camera.quaternion);
 
     this.renderer.clear();
     this.renderer.render(this.starScene, this.starCamera);
