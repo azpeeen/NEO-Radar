@@ -575,6 +575,27 @@
       <div id="dyn-scale-line" style="height:2px;background:var(--ink-2);width:80px;flex-shrink:0;"></div>
       <span id="dyn-scale-label">1 AU</span>
     </div>
+    <!-- Controls hint — bottom-left, above the legend; fades out 8 s after
+         the first interaction (see script below) -->
+    <div id="controls-hint" style="
+      position: absolute;
+      bottom: 80px;
+      left: 16px;
+      z-index: 4;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      letter-spacing: 0.08em;
+      color: rgba(180, 200, 230, 0.85);
+      opacity: 0.75;
+      pointer-events: none;
+      line-height: 1.6;
+      transition: opacity 1s;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    ">
+      DRAG · orbit<br>
+      SHIFT ⇧ + DRAG · pan<br>
+      SCROLL · zoom
+    </div>
     <!-- bottom-center: the right corner is covered by the dossier panel
          (open exactly when this shows) and the legend owns the bottom-left -->
     <div id="repr-notice" style="
@@ -801,10 +822,10 @@
       <div class="control"><div class="label"><span class="t">All NEAs (MPC)</span><span class="d">~41k background asteroids</span></div><div class="toggle on" id="tg-mpc"></div></div>
       <div style="padding:10px 0 4px;border-top:1px solid var(--line);font-family:var(--font-mono);font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);">Individual Planets</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-bottom:8px;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-mercury" style="accent-color:var(--cobalt);"> Mercury</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-venus"   style="accent-color:var(--cobalt);"> Venus</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-mercury" style="accent-color:var(--cobalt);" checked> Mercury</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-venus"   style="accent-color:var(--cobalt);" checked> Venus</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-earth"   style="accent-color:var(--cobalt);" checked> Earth</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-mars"    style="accent-color:var(--cobalt);"> Mars</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-mars"    style="accent-color:var(--cobalt);" checked> Mars</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-jupiter" style="accent-color:var(--cobalt);" checked> Jupiter</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-saturn"  style="accent-color:var(--cobalt);" checked> Saturn</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--ink-3);"><input type="checkbox" id="ptg-uranus"  style="accent-color:var(--cobalt);" checked> Uranus</label>
@@ -940,7 +961,7 @@ const state = {
     phi: 1.20,             // elevation, rad (~69° — tilted near-top-down, Eyes-like)
   },
   showPlanets: true, showOrbits: true, showMPC: true,
-  planetToggles: { mercury:false, venus:false, earth:true, mars:false, jupiter:true, saturn:true, uranus:true, neptune:true },
+  planetToggles: { mercury:true, venus:true, earth:true, mars:true, jupiter:true, saturn:true, uranus:true, neptune:true },
   // ── Focus mode — cinematic camera follow on the MAIN scene ──
   focusMode: false,        // true while focused (exit animation runs after → false)
   focusTarget: null,       // { type:'neo'|'planet'|'luna'|'mpc', idx?|ast?, name, desig, a }
@@ -1567,14 +1588,15 @@ const _frame = {
   cam: { tx:0, ty:0, tz:0, dist:7, theta:0, phi:1.20 },
   planets: PLANETS.map(() => ({ x:0, y:0, visible:false, conj:false })),
   neos:    NEOS.map(() => ({ x:0, y:0, z:0 })),
-  selIdx: -1, hovIdx: -1,
+  selIdx: -1, hovIdx: -1, focusNeoIdx: null, focusMode: false, focusPos: null,
   cone: { active:false, risky:false, count:_CONE_N, upper:_coneUpper, lower:_coneLower },
   jup:  { active:false, ax:0, ay:0, az:0, bx:0, by:0, bz:0 },
   conjs: [],
   mpcDirty: false,
   hoverMPC: null,
   luna: { x:0, y:0, z:0, visible:false },
-  promoted: { active:false, x:0, y:0, z:0, ex:0, ey:0, distLD:'', radius:0 },
+  focus: { moonActive:false },
+  promoted: { active:false, focused:false, x:0, y:0, z:0, ex:0, ey:0, distLD:'', radius:0 },
 };
 
 let last=performance.now();
@@ -1647,8 +1669,11 @@ function tick(now) {
       pr.active=true; pr.x=sx; pr.y=sy; pr.z=sz; pr.ex=ep.x; pr.ey=ep.y;
       pr.radius=srcRadius;
       pr.distLD=(Math.hypot(sx-ep.x,sy-ep.y,sz)/0.00257).toFixed(2);
+      // Focus flag: only then does the renderer apply the big min-px floor —
+      // a dossier promotion viewed from the map stays a small marker
+      pr.focused = !!(tg && (tg.type==='neo' || tg.type==='mpc'));
     } else {
-      pr.active=false;
+      pr.active=false; pr.focused=false;
     }
   }
 
@@ -1717,6 +1742,24 @@ function tick(now) {
       updateFocusHud(tp, t);
     }
   }
+
+  // "MOON" overlay label — only when the Moon takes part in the current focus
+  // (Earth focus or Moon focus) and its frame slot is actually visible
+  _frame.focus.moonActive = !!(state.focusTarget && _frame.luna.visible &&
+    (state.focusTarget.type === 'luna' ||
+     (state.focusTarget.type === 'planet' && PLANETS[state.focusTarget.idx].key === 'earth')));
+
+  // Focused NEO index — the renderer hides that NEO's risk sphere (the
+  // promoted rock mesh renders in its place); null when no NEO is focused
+  _frame.focusNeoIdx = (state.focusTarget && state.focusTarget.type === 'neo')
+    ? state.focusTarget.idx
+    : null;
+
+  // Focus LOD inputs: planets far from the focused object collapse to dots
+  // in the renderer. Off during the exit glide (focusMode already false) so
+  // the map look returns while the camera flies back.
+  _frame.focusMode = !!(state.focusMode && state.focusTarget);
+  _frame.focusPos = _frame.focusMode ? _focusTargetPos(t) : null;
 
   // Camera → frame: flat copy of the 6 numbers (the renderer never decides
   // camera state on its own)
@@ -2003,14 +2046,22 @@ function updateFocusHud(pos, t) {
 
 // Dolly targets for an object of physical radius r (Part 6): the end distance
 // frames the body; "raioEfetivo" folds in the min-px floor at that distance so
-// tiny asteroids still land at a sensible range.
-function _setFocusDollyTargets(radiusAU) {
+// tiny asteroids still land at a sensible range. `kind` tightens the framing
+// for big bodies ('earth' | 'luna' | 'gas' → real-radius multiples); asteroids
+// and the remaining rocky planets keep the min-px-aware default.
+function _setFocusDollyTargets(radiusAU, kind) {
   _focusRadiusAU = radiusAU;
   var distGuess = Math.max(radiusAU * 4, 0.002);
   var minWorldR = 6 * (2 * distGuess * Math.tan(FOV_RAD / 2) / H);
   var rEff = Math.max(radiusAU, minWorldR);
-  _focusDistTarget = Math.max(rEff * 4, 0.002);
-  _focusMinDist = Math.max(rEff * 1.3, 3e-5);
+  if (kind === 'earth')     _focusDistTarget = Math.max(radiusAU * 8, 0.0003);
+  else if (kind === 'luna') _focusDistTarget = Math.max(radiusAU * 6, 0.00008);
+  else if (kind === 'gas')  _focusDistTarget = radiusAU * 5;
+  else                      _focusDistTarget = 0.0006;
+  // Dolly floor: asteroids (default kind) may scroll in VERY close; the
+  // named big bodies keep the tighter surface-hugging floor.
+  _focusMinDist = kind ? Math.max(rEff * 1.5, 3e-5)
+                       : 0.00003;
 }
 
 function _beginFocusGlide() {
@@ -2022,21 +2073,24 @@ function _beginFocusGlide() {
   _lastInteractT = performance.now();
 }
 
-function enterFocus(target) {
-  if (state.focusTarget) return;               // already focused / animating out
-  state._camBeforeFocus = Object.assign({}, state.cam);
-  state.focusMode = true;
-
-  var radiusAU = 0;
+// Shared focus-target setup: fills target.a/name/desig, derives the physical
+// radius + dolly kind, starts the glide and refreshes mesh/notice/HUD. Used
+// by enterFocus (map → focus) and _switchFocus (focus → focus).
+function _applyFocusTarget(target) {
+  var radiusAU = 0, focusKind = null;
   if (target.type === 'planet') {
     var p = PLANETS[target.idx];
     target.a = p.a; target.name = p.name;
     target.desig = 'PLANET · a = ' + p.a.toFixed(3) + ' AU';
     radiusAU = REAL_RADIUS_AU[p.key] || 2e-5;  // shared table from renderer3d.js
+    focusKind = p.key === 'earth' ? 'earth'
+      : (p.key === 'jupiter' || p.key === 'saturn' || p.key === 'uranus' || p.key === 'neptune') ? 'gas'
+      : null;
   } else if (target.type === 'luna') {
     target.a = 1.0; target.name = 'Moon';
     target.desig = 'EARTH SATELLITE · P = 27.32 D';
     radiusAU = REAL_RADIUS_AU.moon;
+    focusKind = 'luna';
   } else if (target.type === 'neo') {
     var n = NEOS[target.idx];
     target.a = n.a; target.name = n.name; target.desig = n.desig;
@@ -2048,29 +2102,80 @@ function enterFocus(target) {
   }
   state.focusTarget = target;
 
-  _setFocusDollyTargets(radiusAU);
+  _setFocusDollyTargets(radiusAU, focusKind);
   _beginFocusGlide();
   _syncAsteroidMesh();                         // NEO/MPC: 3D mesh in the MAIN scene
   _refreshReprNotice();
 
   document.getElementById('fh-name').textContent = target.name;
   document.getElementById('fh-desig').textContent = target.desig;
+}
+
+function enterFocus(target) {
+  if (state.focusTarget) return;               // already focused / animating out
+  state._camBeforeFocus = Object.assign({}, state.cam);
+  state.focusMode = true;
+  _applyFocusTarget(target);
   document.getElementById('focus-hud').classList.add('show');
   _container.classList.add('focus-active');
   document.getElementById('tooltip').classList.remove('show');
   state.hoverId = null; state.hoverPlanet = null; _hoverMPC = null; state.hoverLuna = false;
 }
 
-// Click on the Moon while focused on Earth → the Moon becomes the focus:
-// same follow mode, so the camera glides Earth → Moon with no cut.
-function _switchFocusToLuna() {
-  var target = { type: 'luna', a: 1.0, name: 'Moon', desig: 'EARTH SATELLITE · P = 27.32 D' };
-  state.focusTarget = target;
-  _setFocusDollyTargets(REAL_RADIUS_AU.moon);
-  _beginFocusGlide();
-  _refreshReprNotice();
-  document.getElementById('fh-name').textContent = target.name;
-  document.getElementById('fh-desig').textContent = target.desig;
+// Focus → focus swap (single click/tap on another object while focused):
+// the entry glide re-runs from the CURRENT camera, so the dolly flows
+// object → object — Moon included — with no exit round-trip.
+function _switchFocus(target) {
+  if (!state.focusMode || _exitAnim) return;
+  _applyFocusTarget(target);
+}
+
+// True when a hit-test result denotes the object already focused
+function _sameFocusTarget(a, b) {
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'mpc') return a.ast === b.ast;
+  if (a.type === 'luna') return true;
+  return a.idx === b.idx;
+}
+
+// Hit test usable while focused (the map hover is disabled then): same tests
+// and priorities as the mousemove hover, returning an enterFocus-style
+// target descriptor or null.
+function _focusHitTest(mx, my) {
+  var t = state.simTime;
+  var bestIdx = -1, bestD = 22;
+  for (var i = 0; i < NEOS.length; i++) {
+    var p = orbitPos(NEOS[i], t), s = ws(p.x, p.y, p.z);
+    if (!s) continue;
+    var d = Math.hypot(s.x - mx, s.y - my);
+    if (d < bestD) { bestD = d; bestIdx = i; }
+  }
+  if (bestIdx >= 0) return { type: 'neo', idx: bestIdx };
+  if (state.showPlanets) {
+    var luna = _renderer.getLunaScreenPos();
+    if (luna && luna.sep > 3) {
+      var dL = Math.hypot(mx - luna.x, my - luna.y);
+      if (dL < luna.r + 8) {
+        var epL = orbitPos(PLANETS[2], t), esL = ws(epL.x, epL.y, 0);
+        var dTerra = esL ? Math.hypot(mx - esL.x, my - esL.y) : Infinity;
+        if (dL < dTerra - 15) return { type: 'luna' };  // Earth-priority rule
+      }
+    }
+    var bestP = -1, bestPD = 18;
+    for (var j = 0; j < PLANETS.length; j++) {
+      if (!state.planetToggles[PLANETS[j].key]) continue;
+      var pp = orbitPos(PLANETS[j], t), sp = ws(pp.x, pp.y, 0);
+      if (!sp) continue;
+      var dp = Math.hypot(sp.x - mx, sp.y - my);
+      if (dp < bestPD) { bestPD = dp; bestP = j; }
+    }
+    if (bestP >= 0) return { type: 'planet', idx: bestP };
+  }
+  if (state.showMPC && _mpcLoaded) {
+    var hit = _mpcHit(mx, my);
+    if (hit) return { type: 'mpc', ast: hit.ast };
+  }
+  return null;
 }
 
 function exitFocus() {
@@ -2088,6 +2193,22 @@ function _finishExitFocus() {                  // called by tick() once the glid
   _exitAnim = null;
   _syncAsteroidMesh();                         // demote unless the dossier still owns it
   _refreshReprNotice();
+  _container.classList.remove('focus-active');
+}
+
+// Zoom-out exit: leave focus with NO return glide — the camera stays exactly
+// where the wheel put it and the map takes over from there.
+function exitFocusSilent() {
+  if (!state.focusTarget) return;
+  state.focusMode = false;
+  state.focusTarget = null;
+  state.focusLerp = 0;
+  _focusFollow = false;
+  _exitAnim = null;
+  state._camBeforeFocus = null;                // never glide back to it
+  _syncAsteroidMesh();                         // demote unless the dossier still owns it
+  _refreshReprNotice();
+  document.getElementById('focus-hud').classList.remove('show');
   _container.classList.remove('focus-active');
 }
 
@@ -2109,24 +2230,30 @@ let _panSX = 0, _panSY = 0;        // mousedown position (click-vs-drag test)
 let _panLX = 0, _panLY = 0;        // last mouse position while dragging
 let _camVTheta = 0, _camVPhi = 0;  // angular inertia seeded by the last drag
 let _lastInteractT = 0;            // last user input — drives focus auto-rotate
+let _mouseX = W / 2, _mouseY = H / 2;  // last cursor position — wheel zoom-to-cursor
 
 cv.style.cursor = 'grab';
 cv.addEventListener('contextmenu', e => e.preventDefault());   // right-drag = pan
 
-// Pan: move the camera target along the screen plane, converting px → AU at
-// the target depth. Disabled while focus follow has the target glued.
+// Pan: move the camera target along the ECLIPTIC plane, converting px → AU at
+// the target depth. The camera right/up vectors (matrixWorld columns 0 and 1)
+// are projected onto the XY plane and re-normalized, so a vertical drag never
+// pushes the target out of the ecliptic — tz stays put.
+// Disabled while focus follow has the target glued.
 function camPan(dx, dy) {
   if (state.focusTarget) return;
   const c = state.cam;
   const wpp = 2 * c.dist * Math.tan(FOV_RAD / 2) / H;   // world per pixel
-  const ct = Math.cos(c.theta), st = Math.sin(c.theta);
-  const cp = Math.cos(c.phi),  sp = Math.sin(c.phi);
-  // Camera right/up vectors in world coords (up = +z, spherical position)
-  const rx = -ct,      ry = st;                          // rz = 0
-  const ux = -sp * st, uy = -sp * ct, uz = cp;
+  const me = _renderer.camera.matrixWorld.elements;
+  let rx = me[0], ry = me[1];        // right — rz ignored (stay in-plane)
+  let ux = me[4], uy = me[5];        // up    — uz ignored
+  const rLen = Math.hypot(rx, ry);
+  if (rLen > 1e-6) { rx /= rLen; ry /= rLen; } else { rx = 0; ry = 0; }
+  const uLen = Math.hypot(ux, uy);
+  if (uLen > 1e-6) { ux /= uLen; uy /= uLen; } else { ux = 0; uy = 0; }
   c.tx -= (rx * dx - ux * dy) * wpp;
   c.ty -= (ry * dx - uy * dy) * wpp;
-  c.tz -= (      - uz * dy) * wpp;
+  // c.tz unchanged — pan never leaves the ecliptic plane
 }
 
 cv.addEventListener('mousedown', e => {
@@ -2196,9 +2323,17 @@ cv.addEventListener('dblclick', e => {
 
 cv.addEventListener('mousemove',e=>{
   const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  _mouseX = x; _mouseY = y;          // wheel handler zooms toward this point
+  // e.buttons is the LIVE button state: when the button was released outside
+  // the canvas our mouseup never fired, so any armed/active drag is stale —
+  // end it here instead of dragging with no button pressed.
+  if ((_dragMode || _dragArmed) && e.buttons === 0) {
+    _dragMode = null; _dragArmed = null;
+    cv.style.cursor = 'grab';
+  }
   // Armed drag becomes active only after 4px of travel — below that the
   // gesture is still a click and the camera must not move
-  if (!_dragMode && _dragArmed &&
+  if (!_dragMode && _dragArmed && e.buttons !== 0 &&
       Math.hypot(e.clientX - _panSX, e.clientY - _panSY) > 4) {
     _dragMode = _dragArmed;
     cv.style.cursor = 'grabbing';
@@ -2242,6 +2377,13 @@ cv.addEventListener('mousemove',e=>{
     if(luna && luna.sep>3){
       const dL=Math.hypot(x-luna.x,y-luna.y);
       if(dL<luna.r+8 && (!bestPlanet||dL<bestPD)) lunaHit=true;
+      if(lunaHit){
+        // Earth priority: the Moon only takes the hover when it is clearly
+        // (15px) closer to the cursor than Earth
+        const ep=orbitPos(PLANETS[2],state.simTime), es=ws(ep.x,ep.y,0);
+        const dTerra=es?Math.hypot(x-es.x,y-es.y):Infinity;
+        lunaHit = lunaHit && (dL < dTerra - 15);
+      }
     }
   }
   const tt=document.getElementById('tooltip');
@@ -2312,15 +2454,14 @@ cv.addEventListener('mouseleave',()=>{
 });
 cv.addEventListener('click',e=>{
   if(state.focusTarget){
-    // Focus mode: the only live click target is the Moon while Earth is focused
-    if(state.focusMode
-       && state.focusTarget.type==='planet' && PLANETS[state.focusTarget.idx].key==='earth'
-       && Math.hypot(e.clientX-_panSX,e.clientY-_panSY)<4){   // ignore drag-release
+    // Focus mode: a single click on any OTHER object swaps the focus to it —
+    // the camera dollies straight there, no exit round-trip. Empty space or
+    // the focused object itself: no-op. Drag-releases are ignored.
+    if(state.focusMode && !_exitAnim
+       && Math.hypot(e.clientX-_panSX,e.clientY-_panSY)<4){
       const rc=cv.getBoundingClientRect();
-      const luna=_renderer.getLunaScreenPos();
-      if(luna && Math.hypot((e.clientX-rc.left)-luna.x,(e.clientY-rc.top)-luna.y)<Math.max(12,luna.r+6)){
-        _switchFocusToLuna();
-      }
+      const hit=_focusHitTest(e.clientX-rc.left,e.clientY-rc.top);
+      if(hit && !_sameFocusTarget(hit,state.focusTarget)) _switchFocus(hit);
     }
     return;
   }
@@ -2342,9 +2483,28 @@ cv.addEventListener('wheel',e=>{
     // the animation
     _focusDistTarget = Math.max(_focusMinDist, Math.min(120, _focusDistTarget * factor));
   } else {
+    // Zoom-to-cursor: nudge the target toward the point under the mouse so
+    // the dolly heads for the cursor, not the Sun. Skipped while focused —
+    // tick() glues the target to the followed object.
+    if (!state.focusTarget) {
+      const wpp = 2 * state.cam.dist * Math.tan(FOV_RAD / 2) / H;
+      const cx = (_mouseX / W - 0.5) * 2, cy = (_mouseY / H - 0.5) * 2;
+      const me = _renderer.camera.matrixWorld.elements;  // col 0 = right, col 1 = up
+      const frac = e.deltaY > 0 ? -0.15 : 0.15;  // 15% of the dolly goes to the target
+      const k = wpp * H * frac;
+      state.cam.tx += (me[0] * cx - me[4] * cy) * k;
+      state.cam.ty += (me[1] * cx - me[5] * cy) * k;
+      state.cam.tz += (me[2] * cx - me[6] * cy) * k;
+    }
     // Dolly floor is dynamic in focus follow (just above the surface)
     const minD = _focusFollow ? _focusMinDist : 0.0005;
     state.cam.dist = Math.max(minD, Math.min(120, state.cam.dist * factor));
+    // Zooming far out of a focused object (4× the dolly target) leaves focus
+    // silently — no return glide, the camera keeps this exact distance
+    if (state.focusMode && _focusFollow && !_exitAnim &&
+        state.cam.dist > _focusDistTarget * 4) {
+      exitFocusSilent();
+    }
   }
   _lastInteractT = performance.now();
 },{passive:false});
@@ -2514,7 +2674,15 @@ function _hideTapTooltip() {
   tt.classList.remove('mobile-tap');
 }
 function _mobileTap(x, y) {
-  if (state.focusTarget) return;
+  if (state.focusTarget) {
+    // Focus mode: a single tap on another object swaps the focus — same rule
+    // as the desktop click
+    if (state.focusMode && !_exitAnim) {
+      var hitF = _focusHitTest(x, y);
+      if (hitF && !_sameFocusTarget(hitF, state.focusTarget)) _switchFocus(hitF);
+    }
+    return;
+  }
   var t = state.simTime;
   var tt = document.getElementById('tooltip');
 
@@ -2529,7 +2697,15 @@ function _mobileTap(x, y) {
   var lunaTap = false;
   if (!best && state.showPlanets && state.planetToggles.earth) {
     var luna = _renderer.getLunaScreenPos();
-    if (luna && luna.sep > 3 && Math.hypot(x - luna.x, y - luna.y) < luna.r + 12) lunaTap = true;
+    if (luna && luna.sep > 3) {
+      var dL = Math.hypot(x - luna.x, y - luna.y);
+      if (dL < luna.r + 12) {
+        // Earth priority — same 15px rule as the mouse hover
+        var epT = orbitPos(PLANETS[2], t), esT = ws(epT.x, epT.y, 0);
+        var dTerra = esT ? Math.hypot(x - esT.x, y - esT.y) : Infinity;
+        lunaTap = dL < dTerra - 15;
+      }
+    }
   }
   var bestPlanet = null, bestPD = 24;
   if (!best && !lunaTap && state.showPlanets) {
@@ -2694,6 +2870,23 @@ function _mobileTap(x, y) {
     }
   });
 })();
+
+// ─── Controls hint — mobile wording + fade-out 8 s after first interaction ───
+(function () {
+  var hint = document.getElementById('controls-hint');
+  if (!hint) return;
+  if (window.innerWidth < 768 || 'ontouchstart' in window) {
+    hint.innerHTML = '1 FINGER · orbit<br>2 FINGERS · pan &amp; zoom';
+  }
+  var armed = false;
+  function _hintArm() {
+    if (armed) return;
+    armed = true;
+    setTimeout(function () { hint.style.opacity = '0'; }, 8000);
+  }
+  cv.addEventListener('mousedown', _hintArm);
+  cv.addEventListener('touchstart', _hintArm, { passive: true });
+}());
 
 // Wrap renderSelected so mobile sheet summary stays in sync
 renderSelected = (function (orig) {

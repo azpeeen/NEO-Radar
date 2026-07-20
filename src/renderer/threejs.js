@@ -52,7 +52,23 @@ var REAL_RADIUS_AU = {
 };
 
 // Minimum on-screen radius in px so every body stays a clickable dot from afar
-var MIN_PX = { sun: 9, planet: 5, moon: 3, neo: 4 };
+var MIN_PX = {
+  sun:      12,
+  mercury:  3,
+  venus:    4,
+  earth:    5,
+  mars:     3,
+  jupiter:  7,
+  saturn:   6,
+  uranus:   4,
+  neptune:  4,
+  moon:     2,
+  asteroid: 1.5,   // general map
+  neo:      1.5,
+};
+
+// Focused/promoted asteroid mesh floor — deliberately large (focus close-up)
+var PROMO_MIN_PX = 60;
 
 var FOV_DEG = 45;
 
@@ -562,14 +578,17 @@ class ThreeJSRenderer {
 
   _buildPlanets() {
     var self = this;
+    // Geometry poles are ±Y by default — bake them onto ±Z so the geographic
+    // pole points at ecliptic north (+Z) and the sidereal spin is rotation.z.
     this._sphereGeoHi = new THREE.SphereGeometry(1, 32, 16);
+    this._sphereGeoHi.rotateX(Math.PI / 2);
     this.planets = (this.opts.planets || []).map(function (def, i) {
       var group = new THREE.Group();
       group.visible = false;
-      // Axial tilt: after the sphere pre-tilt below, the pole lies along the
-      // ecliptic normal (z) — tipping it needs a rotation about an IN-PLANE
-      // axis (x); rotating about z would just spin the pole in place.
-      group.rotation.x = (AXIAL_TILT[def.key] || 0) * Math.PI / 180;
+      // Axial tilt: the pole is baked along +Z, so tipping it needs a
+      // rotation about an IN-PLANE axis (y); rotating about z would just
+      // spin the pole in place.
+      group.rotation.y = (AXIAL_TILT[def.key] || 0) * Math.PI / 180;
       self.scene.add(group);
 
       var isEarth = def.key === 'earth';
@@ -578,19 +597,15 @@ class ThreeJSRenderer {
         roughness: 0.85,
         metalness: 0.0,
         emissive: isEarth ? self._col('#2255cc') : new THREE.Color(0x000000),
-        emissiveIntensity: isEarth ? 0.15 : 0,
+        emissiveIntensity: isEarth ? 0.35 : 0,
       });
       var sphere = new THREE.Mesh(self._sphereGeoHi, mat);
-      // Align the equirectangular texture's poles with the ecliptic normal
-      // (Euler XYZ: the sidereal spin set on rotation.y still turns the
-      // texture about its own pole before this pre-tilt is applied)
-      sphere.rotation.x = -Math.PI / 2;
       group.add(sphere);
 
       if (isEarth) {
         // Weak blue point light riding with Earth — lifts nearby asteroids.
         // Light range/intensity ignore the parent's scale; only position inherits.
-        group.add(new THREE.PointLight(0x4488ff, 0.4, 8));
+        group.add(new THREE.PointLight(0x4488ff, 0.8, 15));
         // Atmosphere: back-face shell slightly larger than the globe reads as
         // a bright rim from every angle.
         var halo = new THREE.Mesh(
@@ -598,7 +613,7 @@ class ThreeJSRenderer {
           new THREE.MeshBasicMaterial({
             color: 0x224488,
             transparent: true,
-            opacity: 0.18,
+            opacity: 0.30,
             side: THREE.BackSide,
             depthWrite: false,
           })
@@ -623,9 +638,9 @@ class ThreeJSRenderer {
 
       var ring = null;
       if (def.ring) {
-        // Tilted so the top-down view shows the same ellipse the 2D canvas drew
-        var ringHolder = new THREE.Group();
-        ringHolder.rotation.z = 0.3;
+        // RingGeometry lies in the local XY plane — with the pole baked onto
+        // +Z that IS the planet's equatorial plane; the group's axial tilt
+        // (rotation.y above) tips ring and globe together.
         var ringGeo = new THREE.RingGeometry(1.4, 2.4, 64);
         self._remapRingUVs(ringGeo, 1.4, 2.4);
         var ringMat = new THREE.MeshBasicMaterial({
@@ -636,9 +651,7 @@ class ThreeJSRenderer {
           depthWrite: false,
         });
         ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = 1.318;                     // cos ≈ 0.25 → flattened ellipse
-        ringHolder.add(ring);
-        group.add(ringHolder);
+        group.add(ring);
       }
 
       var orbit = self._orbitLine(def.orbitPts, def.color, 0.25);
@@ -710,19 +723,33 @@ class ThreeJSRenderer {
 
   _buildNEOs() {
     var self = this;
-    this._sphereGeoLo = new THREE.SphereGeometry(1, 16, 12);
     this.neos = (this.opts.neos || []).map(function (def) {
       var style = ORBIT_STYLE[def.risk] || ORBIT_STYLE.safe;
-      var mesh = new THREE.Mesh(
-        self._sphereGeoLo,
-        new THREE.MeshBasicMaterial({ color: self._col(RISK_COLOR[def.risk] || '#f0f4ff') })
-      );
-      self.scene.add(mesh);
+
+      // Procedural rock — deterministic per designation — with a backface-
+      // hull outline in the risk color so the marker keeps its risk reading.
+      var seed = _hashString(String(def.id || def.name || 'neo'));
+      var geo = generateAsteroidGeometry(seed);
+      var group = new THREE.Group();
+      var rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: self._col('#8f8578'),
+        roughness: 0.9,
+        metalness: 0.0,
+        flatShading: true,
+      }));
+      group.add(rock);
+      var outline = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: self._col(RISK_COLOR[def.risk] || '#f0f4ff'),
+        side: THREE.BackSide,
+      }));
+      outline.scale.setScalar(1.08);
+      group.add(outline);
+      self.scene.add(group);
 
       var orbit = self._orbitLine(def.orbitPts, style.color, style.base);
       self.scene.add(orbit);
 
-      return { def: def, mesh: mesh, orbit: orbit, style: style };
+      return { def: def, group: group, rock: rock, outline: outline, orbit: orbit, style: style };
     });
 
     // Shared selection highlight: pulsing wireframe + weak point light
@@ -804,8 +831,9 @@ class ThreeJSRenderer {
             opacity: 0.35,
             depthWrite: false,
           });
-          p.clouds = new THREE.Mesh(new THREE.SphereGeometry(1.035, 32, 16), mat);
-          p.clouds.rotation.x = -Math.PI / 2;         // same pole alignment as the globe
+          var cloudGeo = new THREE.SphereGeometry(1.035, 32, 16);
+          cloudGeo.rotateX(Math.PI / 2);              // same pole-to-+Z bake as the globe
+          p.clouds = new THREE.Mesh(cloudGeo, mat);
           p.group.add(p.clouds);
         });
       }
@@ -1100,12 +1128,16 @@ class ThreeJSRenderer {
   }
 
   _drawSun() {
+    // Physically true angular size at every distance, with a small visibility
+    // floor: a 6px point from the outer system, a real disc as the camera
+    // dives in (≈0.5° from Earth's distance).
     var wpp = this._wpp1 * this._camPos.length();      // sun sits at the origin
     var r = Math.max(REAL_RADIUS_AU.sun, MIN_PX.sun * wpp);
     this.sun.scale.setScalar(r / 0.04);                // base geometry radius 0.04
-    // Corona scales WITH the disc (same factor), never in fixed px
-    var glowWorld = r * 9;
-    this.sunGlow.scale.set(glowWorld, glowWorld, 1);
+    // Glow: 6× the disc, never under 80px. Sprite scale is raw world units —
+    // the 0.04 base radius belongs to the sphere geometry only.
+    var glowR = Math.max(r * 6, 80 * wpp);
+    this.sunGlow.scale.set(glowR, glowR, 1);
   }
 
   _drawPlanets(state, frame, dt) {
@@ -1121,17 +1153,18 @@ class ThreeJSRenderer {
       // perspective size up close (ring + halo are children — they inherit)
       var wpp = this._wpp1 * this._camDist(f.x, f.y, 0);
       var realR = REAL_RADIUS_AU[p.def.key] || 2e-5;
-      var r = Math.max(realR, MIN_PX.planet * wpp);
+      var minPx = MIN_PX[p.def.key] || 3;
+      var r = Math.max(realR, minPx * wpp);
       p.group.scale.setScalar(r);
       // Sidereal rotation — set absolutely from simTime (days) so variable
       // simulation speed never accumulates drift
       var angleRad = (Math.PI * 2 / SIDEREAL_DAY[p.def.key]) * state.simTime;
-      p.sphere.rotation.y = angleRad;
-      if (p.clouds) p.clouds.rotation.y = angleRad * 1.006;
+      p.sphere.rotation.z = angleRad;
+      if (p.clouds) p.clouds.rotation.z = angleRad * 1.006;
       var conj = !!f.conj;
       // The additive glow sprite would wash out the textured close-up, so it
       // fades out once the true size beats the min-px floor
-      var closeUp = realR > MIN_PX.planet * wpp;
+      var closeUp = realR > minPx * wpp;
       p.glow.visible = (!!p.def.glow || conj) && !closeUp;
       p.glow.scale.setScalar(conj ? 10 : 6);
       p.glow.material.opacity = conj ? 0.5 : 0.4;
@@ -1173,16 +1206,28 @@ class ThreeJSRenderer {
   }
 
   _drawNEOs(state, frame) {
+    // The focused NEO is rendered as its promoted 3D mesh (procedural rock or
+    // NASA GLB, _drawPromotedObject) — the whole map group hides while that
+    // NEO is the focus target. The index arrives as flat frame data
+    // (frame.focusNeoIdx): the renderer stays out of the page's focus state.
+    var focusNeo = (frame.focusNeoIdx != null) ? frame.focusNeoIdx : -1;
+    var MAP_NEO_PX = 1.5;    // fixed small marker size in the general map
     for (var i = 0; i < this.neos.length; i++) {
       var n = this.neos[i];
       var f = frame.neos[i];
-      var isSel = i === frame.selIdx, isHov = i === frame.hovIdx;
-      n.mesh.visible = true;
+      var isSel = i === frame.selIdx;
+      n.group.visible = i !== focusNeo;
       n.orbit.visible = true;
-      n.mesh.position.set(f.x, f.y, f.z);
-      // NEOs have no reliable physical radius — pure min-px dots
-      var wpp = this._wpp1 * this._camDist(f.x, f.y, f.z);
-      n.mesh.scale.setScalar((isSel ? MIN_PX.neo : isHov ? 3.5 : 2.4) * wpp);
+      if (n.group.visible) {
+        n.group.position.set(f.x, f.y, f.z);
+        // Catalog NEOs carry no reliable physical radius (1e-9 AU stand-in):
+        // the min-px floor decides the on-screen size. The focused NEO never
+        // scales up here — it hides (visible=false above) and _promoMesh
+        // renders in its place at PROMO_MIN_PX.
+        var wpp = this._wpp1 * this._camDist(f.x, f.y, f.z);
+        n.group.scale.setScalar(Math.max(1e-9, MAP_NEO_PX * wpp));
+        n.group.rotation.y += 0.003;             // slow tumble — life on the map
+      }
       n.orbit.material.opacity = isSel ? n.style.sel : n.style.base;
     }
     var sel = frame.selIdx >= 0 ? this.neos[frame.selIdx] : null;
@@ -1201,9 +1246,12 @@ class ThreeJSRenderer {
     }
   }
 
-  _drawConeMesh(frame) {
+  _drawConeMesh(state, frame) {
     var c = frame.cone;
-    this.cone.visible = !!(c && c.active);
+    // Hidden while focused: at focus dolly distances the wide translucent
+    // ribbon (orange when the selection is risky) slices through the frustum
+    // and washes the whole close-up in its color.
+    this.cone.visible = !!(c && c.active && !state.focusTarget);
     if (!this.cone.visible) return;
     var N = Math.min(this._coneN, c.count);
     var pos = this.cone.geometry.attributes.position;
@@ -1235,9 +1283,16 @@ class ThreeJSRenderer {
       this._promoMesh.visible = active;
       if (active) {
         var pr = frame.promoted;
-        // Real radius estimated from H (page-computed), min-px floor of 8px
+        // Real radius estimated from H (page-computed) with a min-px floor.
+        // Geometry base radius is 1.0 (procedural meshes normalized to unit
+        // max radius, GLB wrapped to a unit bounding sphere), so the AU
+        // radius IS the scale. The big PROMO_MIN_PX floor applies ONLY
+        // while this asteroid is the focus target — a dossier promotion seen
+        // from the map keeps the small 8px marker floor, otherwise the rock
+        // dwarfs the whole inner system.
         var wpp = this._wpp1 * this._camDist(pr.x, pr.y, pr.z);
-        var scale = Math.max(pr.radius || 0, 8 * wpp);
+        var minPx = pr.focused ? PROMO_MIN_PX : 8;
+        var scale = Math.max(pr.radius || 0, minPx * wpp);
         this._promoMesh.position.set(pr.x, pr.y, pr.z);
         this._promoMesh.scale.setScalar(scale);
         this._promoMesh.rotateOnAxis(this._promoAxis, this._promoSpeed * dt);
@@ -1266,6 +1321,20 @@ class ThreeJSRenderer {
         var sp = this._ws(f.x, f.y, 0);
         if (!sp) continue;
         g.fillText(p.def.name, sp.x + p.def.r + 6, sp.y + 3);
+      }
+      // Moon label — focus mode only (frame.focus.moonActive): centred just
+      // below the projected disc
+      if (frame.focus && frame.focus.moonActive && this._lunaState) {
+        var lm = this._lunaState;
+        var ls = this._ws(lm.x, lm.y, lm.z);
+        if (ls) {
+          g.save();
+          g.font = '9px "JetBrains Mono", monospace';
+          g.fillStyle = 'rgba(200,210,230,0.6)';
+          g.textAlign = 'center';
+          g.fillText('MOON', ls.x, ls.y + Math.max(3, lm.rPx || 3) + 8);
+          g.restore();
+        }
       }
     }
 
@@ -1380,13 +1449,18 @@ class ThreeJSRenderer {
    *   cam      {tx,ty,tz, dist, theta, phi}   — camera spherical state (page-owned)
    *   planets  [{x,y,visible,conj}]           aligned with opts.planets
    *   neos     [{x,y,z}], selIdx, hovIdx      aligned with opts.neos
+   *   focusNeoIdx  index of the focused NEO (its risk sphere hides) | null
+   *   focusMode    true while an object is focused
+   *   focusPos     {x,y,z} of the focused object | null (currently unused here)
    *   luna     {x,y,z,visible}
+   *   focus    {moonActive} — Moon takes part in the current focus (drives its label)
    *   cone     {active, risky, count, upper:Float32Array(N·3), lower:Float32Array(N·3)}
    *   jup      {active, ax,ay,az, bx,by,bz}
    *   conjs    [{pts:[{x,y},…]}]
    *   mpcDirty boolean — MPC positions array was refreshed this frame
    *   hoverMPC {sx,sy} | null
-   *   promoted {active, x,y,z, ex,ey, distLD, radius}
+   *   promoted {active, focused, x,y,z, ex,ey, distLD, radius} — focused:
+   *            the mesh is the current focus target (full min-px floor)
    *
    * Focus mode is pure camera state on the page side — this file renders the
    * one and only scene every frame, whatever the camera is doing.
@@ -1401,7 +1475,7 @@ class ThreeJSRenderer {
     this._drawPlanets(state, frame, dt);
     this._drawMoon(state, frame);
     this._drawNEOs(state, frame);
-    this._drawConeMesh(frame);
+    this._drawConeMesh(state, frame);
     this._drawMPCAsteroids(state, frame);
     this._drawPromotedObject(state, frame, dt);
 
