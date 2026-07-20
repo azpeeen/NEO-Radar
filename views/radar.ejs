@@ -18,7 +18,7 @@
   .sim-clock .val { font-family: var(--font-mono); font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
   .topbar .right { display: flex; align-items: center; gap: 16px; }
   .canvas-area { grid-area: canvas; position: relative; overflow: hidden; background: radial-gradient(1200px 800px at 40% 40%, rgba(26,108,246,0.06), transparent 60%), #050508; }
-  .canvas-area canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .canvas-area canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   .canvas-overlay { position: absolute; pointer-events: none; z-index: 4; }
   .corner-overlay { padding: 14px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
   .corner-overlay .v { color: var(--ink-2); }
@@ -110,18 +110,27 @@
   @media (max-width: 767px) {
     .radar-shell {
       grid-template-columns: 1fr;
-      grid-template-rows: 48px 1fr;
+      grid-template-rows: 44px auto;
       grid-template-areas: "topbar" "canvas";
       height: 100dvh;
     }
-    .topbar { height: 48px; padding: 0 12px; gap: 10px; }
+    /* Canvas owns everything between the 44px topbar and the 52px bottom bar.
+       When the sheet opens it shrinks to 45vh (same easing as the sheet). */
+    .canvas-area {
+      height: calc(100dvh - 44px - 52px - env(safe-area-inset-bottom, 0px));
+      transition: height 340ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .radar-shell:has(.sidebar.sheet-open) .canvas-area { height: 45vh; }
+    .topbar { height: 44px; padding: 0 12px; gap: 10px; }
     .topbar .left { gap: 12px; }
     .topbar .brand .name { font-size: 13px; }
     .topbar .links { display: none; }
+    /* Topbar keeps only: logo + sim-clock + SIMULATE */
+    .topbar .right { display: none; }
     .sim-clock { padding: 5px 8px; gap: 6px; flex-shrink: 1; min-width: 0; overflow: hidden; }
     .sim-clock .lbl { display: none; }
     .sim-clock .val { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .btn-live { display: none; } /* replaced by FAB on mobile */
+    .btn-live { padding: 4px 9px; min-height: 32px; min-width: 0; font-size: 9px; letter-spacing: 0.1em; }
 
     /* Bottom sheet */
     .sidebar {
@@ -134,7 +143,8 @@
       height: auto;
       max-height: 72vh;
       overflow: hidden;
-      transform: translateY(calc(100% - 56px));
+      /* Fully off-screen when collapsed — the fixed bottom bar is the trigger */
+      transform: translateY(100%);
       transition: transform 340ms cubic-bezier(0.32, 0.72, 0, 1);
       will-change: transform;
       /* Home indicator clearance */
@@ -274,8 +284,10 @@
   .hud-promoted { animation: hud-blink 1.6s ease-in-out infinite; color: #1a6cf6; }
   @media (max-width: 767px) { .mpc-dossier { width: 100%; } }
 
-  /* ── Floating Action Button (mobile LIVE toggle) ────────────── */
+  /* ── Floating Action Button — retired: SIMULATE lives in the mobile topbar
+     now and the fixed bottom bar owns the bottom edge ──────────── */
   .fab-live {
+    display: none !important;
     position: fixed;
     bottom: calc(88px + env(safe-area-inset-bottom, 0px));
     right: 16px;
@@ -317,10 +329,73 @@
     background: var(--green);
     animation: pulse-live 1.4s ease-in-out infinite;
   }
-  /* Hide FAB on desktop */
-  @media (min-width: 769px) {
-    .fab-live { display: none; }
+
+  /* ── Mobile bottom bar — selected object + FOCUS + sheet trigger ── */
+  .mobile-bar { display: none; }
+  @media (max-width: 767px) {
+    .mobile-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      height: calc(52px + env(safe-area-inset-bottom, 0px));
+      padding: 0 14px env(safe-area-inset-bottom, 0px);
+      background: rgba(8,9,16,0.92);
+      border-top: 1px solid var(--line);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      z-index: 15;               /* under the sheet (20), over the canvas */
+    }
+    .mobile-bar .mb-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+    .mobile-bar .mb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); flex-shrink: 0; }
+    .mobile-bar .mb-dot.r-safe    { background: var(--green); }
+    .mobile-bar .mb-dot.r-monitor { background: #6fb4ff; }
+    .mobile-bar .mb-dot.r-caution { background: var(--yellow); }
+    .mobile-bar .mb-dot.r-hazard  { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+    .mobile-bar .mb-name {
+      font-family: var(--font-display); font-weight: 500; font-size: 14px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mobile-bar .mb-focus {
+      height: 36px; padding: 0 16px; flex-shrink: 0;
+      border: 1px solid rgba(26,108,246,0.4); border-radius: 8px;
+      background: rgba(26,108,246,0.08); color: var(--cobalt-soft);
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
+      cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    .mobile-bar .mb-sheet {
+      width: 36px; height: 36px; flex-shrink: 0;
+      border: 1px solid var(--line); border-radius: 8px;
+      background: transparent; color: var(--ink-3);
+      display: grid; place-items: center;
+      cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    /* Repr notice clears the bottom bar */
+    #repr-notice { bottom: 70px; }
   }
+
+  /* Tap tooltip (touch input): bottom-centre, clear of the finger and the
+     mobile bottom bar. Outside the media query — desktop touchscreens tap too. */
+  .obj-tooltip.mobile-tap {
+    left: 50% !important; top: auto !important;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    max-width: calc(100vw - 32px);
+  }
+
+  /* ── Focus exit button — circular ×, visible only while focused ── */
+  #focus-exit-btn {
+    position: absolute; top: 16px; right: 16px; z-index: 7;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid var(--line-strong);
+    background: rgba(5,6,12,0.78);
+    color: var(--ink-2); font-size: 18px; line-height: 1;
+    display: none; place-items: center; cursor: pointer;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  #focus-exit-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+  .canvas-area.focus-active #focus-exit-btn { display: grid; }
 
   /* ── Timezone custom dropdown ───────────────────────────────── */
   @keyframes fadeInDown {
@@ -534,6 +609,9 @@
       <div class="fh-rule"></div>
       <div class="fh-exit" id="fh-exit"><span class="kbd-esc">ESC</span>EXIT FOCUS</div>
     </div>
+
+    <!-- Circular exit button — shown only while .canvas-area has .focus-active -->
+    <button id="focus-exit-btn" aria-label="Exit focus" title="Exit focus">✕</button>
 
     <div class="obj-tooltip" id="tooltip">
       <div class="name" id="tt-name">—</div>
@@ -768,11 +846,24 @@
     </div>
   </aside>
 
-  <!-- Mobile FAB — replaces topbar LIVE button on small screens -->
+  <!-- Mobile FAB — retired (SIMULATE lives in the topbar); kept for the shared
+       live-button JS, permanently hidden via CSS -->
   <button id="fab-live" class="fab-live" aria-label="Toggle live mode">
     <span class="fab-dot"></span>
     <span class="fab-label">SIMULATE</span>
   </button>
+
+  <!-- Mobile bottom bar — selected object + FOCUS + bottom-sheet trigger -->
+  <div id="mobile-bar" class="mobile-bar">
+    <div class="mb-info">
+      <span class="mb-dot r-caution" id="mb-dot"></span>
+      <span class="mb-name" id="mb-name">Apophis</span>
+    </div>
+    <button class="mb-focus" id="mb-focus">FOCUS</button>
+    <button class="mb-sheet" id="mb-sheet" aria-label="Open object panel">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+    </button>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -991,7 +1082,9 @@ async function loadMPCAsteroids() {
       fetch('/api/asteroids/bulk?limit=25000&offset=25000').then(r => r.json()),
     ]);
     const combined = (r1.asteroids || []).concat(r2.asteroids || []);
-    _mpcAsteroids = combined;
+    // Mobile: cap the cloud at 20k — halves the per-frame Kepler pass and the
+    // vertex load on small screens (HUD count stays honest: it shows 20,000)
+    _mpcAsteroids = window.innerWidth < 768 ? combined.slice(0, 20000) : combined;
 
     // Pre-compute secular rates once — O(1) per frame from here on
     for (var k = 0; k < _mpcAsteroids.length; k++) {
@@ -1375,6 +1468,11 @@ function resize() {
   _renderer.resize();
 }
 resize(); window.addEventListener('resize', resize);
+// The mobile canvas also resizes WITHOUT a window resize (45vh squeeze while
+// the bottom sheet is open) — observe the container itself
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(function () { resize(); }).observe(_container);
+}
 
 // ─── World → screen through the renderer's view-projection matrix ────────────
 // _vp is the SAME Float32Array the renderer refreshes every render() — no
@@ -1994,6 +2092,7 @@ function _finishExitFocus() {                  // called by tick() once the glid
 }
 
 document.getElementById('fh-exit').addEventListener('click', exitFocus);
+document.getElementById('focus-exit-btn').addEventListener('click', exitFocus);
 document.getElementById('focus-btn').addEventListener('click', function (e) {
   e.preventDefault();
   var idx = NEOS.findIndex(function (n) { return n.id === state.selectedId; });
@@ -2047,9 +2146,14 @@ cv.addEventListener('mouseup', () => {
   if (_dragMode) { _dragMode = null; cv.style.cursor = 'grab'; }
 });
 
-cv.addEventListener('dblclick', e => {
-  const r = cv.getBoundingClientRect();
-  const mx = e.clientX - r.left, my = e.clientY - r.top;
+// Shared by the dblclick listener (desktop) and the touch double-tap detector
+// (mobile). Debounced: Chrome Android synthesizes a dblclick for double-taps,
+// which would otherwise fire this twice (enter focus, then instantly exit).
+let _lastActivateT = 0;
+function _handleDoubleActivate(mx, my) {
+  const nowA = performance.now();
+  if (nowA - _lastActivateT < 500) return;
+  _lastActivateT = nowA;
   if (state.focusTarget) {
     const tg = state.focusTarget;
     // A double-click on the orbiting Moon while Earth is focused is a
@@ -2083,6 +2187,11 @@ cv.addEventListener('dblclick', e => {
   } else {
     state.cam.tx = 0; state.cam.ty = 0; state.cam.tz = 0;   // recentre on the Sun
   }
+}
+
+cv.addEventListener('dblclick', e => {
+  const r = cv.getBoundingClientRect();
+  _handleDoubleActivate(e.clientX - r.left, e.clientY - r.top);
 });
 
 cv.addEventListener('mousemove',e=>{
@@ -2371,15 +2480,133 @@ function _updateSheetSummary(n) {
   const riskEl = document.getElementById('sheet-risk');
   if (nameEl) nameEl.textContent = n.name;
   if (riskEl) { riskEl.className = 'risk ' + n.risk; riskEl.textContent = n.label; }
+  // Mobile bottom bar mirrors the same selection
+  const mbName = document.getElementById('mb-name');
+  const mbDot  = document.getElementById('mb-dot');
+  if (mbName) mbName.textContent = n.name;
+  if (mbDot)  mbDot.className = 'mb-dot r-' + n.risk;
+}
+
+// ─── Mobile bottom bar — FOCUS on the selected NEO + sheet trigger ──
+(function () {
+  const mbFocus = document.getElementById('mb-focus');
+  const mbSheet = document.getElementById('mb-sheet');
+  if (mbFocus) mbFocus.addEventListener('click', function () {
+    var idx = NEOS.findIndex(function (n) { return n.id === state.selectedId; });
+    if (idx >= 0) enterFocus({ type: 'neo', idx: idx });
+  });
+  if (mbSheet && _sidebar) mbSheet.addEventListener('click', function () {
+    _sidebar.classList.add('sheet-open');
+  });
+})();
+
+// ─── Mobile tap tooltip ───────────────────────────────────────
+// Touch has no hover: a single tap runs the same hit tests as the mouse
+// hover and shows the tooltip bottom-centre (clear of the finger), auto-
+// hidden after 2 s or on the next tap anywhere. It also seeds the hover
+// state, so the synthetic click that follows a tap selects NEOs / opens
+// the MPC dossier exactly like the desktop hover→click flow.
+var _ttHideTimer = null;
+function _hideTapTooltip() {
+  if (_ttHideTimer) { clearTimeout(_ttHideTimer); _ttHideTimer = null; }
+  var tt = document.getElementById('tooltip');
+  tt.classList.remove('show');
+  tt.classList.remove('mobile-tap');
+}
+function _mobileTap(x, y) {
+  if (state.focusTarget) return;
+  var t = state.simTime;
+  var tt = document.getElementById('tooltip');
+
+  // Same hit tests as the mousemove hover, with touch-sized radii
+  var best = null, bestD = 28;
+  for (var i = 0; i < NEOS.length; i++) {
+    var p = orbitPos(NEOS[i], t), s = ws(p.x, p.y, p.z);
+    if (!s) continue;
+    var d = Math.hypot(s.x - x, s.y - y);
+    if (d < bestD) { bestD = d; best = NEOS[i]; }
+  }
+  var lunaTap = false;
+  if (!best && state.showPlanets && state.planetToggles.earth) {
+    var luna = _renderer.getLunaScreenPos();
+    if (luna && luna.sep > 3 && Math.hypot(x - luna.x, y - luna.y) < luna.r + 12) lunaTap = true;
+  }
+  var bestPlanet = null, bestPD = 24;
+  if (!best && !lunaTap && state.showPlanets) {
+    for (var j = 0; j < PLANETS.length; j++) {
+      var pl = PLANETS[j];
+      if (!state.planetToggles[pl.key]) continue;
+      var pp = orbitPos(pl, t), sp = ws(pp.x, pp.y, 0);
+      if (!sp) continue;
+      var dp = Math.hypot(sp.x - x, sp.y - y);
+      if (dp < bestPD) { bestPD = dp; bestPlanet = pl; }
+    }
+  }
+
+  state.hoverId = null; state.hoverPlanet = null; state.hoverLuna = false; _hoverMPC = null;
+  var hit = true;
+  if (best) {
+    state.hoverId = best.id;
+    document.getElementById('tt-name').textContent = best.name;
+    document.getElementById('tt-desig').textContent = best.desig;
+    document.getElementById('tt-d').textContent = best.nextLD + ' LD · ' + best.nextKm + ' km';
+    document.getElementById('tt-v').textContent = best.vel + ' km/s';
+  } else if (lunaTap) {
+    state.hoverLuna = true;
+    document.getElementById('tt-name').textContent = 'Moon';
+    document.getElementById('tt-desig').textContent = 'EARTH SATELLITE · P = 27.32 D';
+    document.getElementById('tt-d').textContent = '1.00 LD · 384,400 km';
+    document.getElementById('tt-v').textContent = '1.02 km/s';
+  } else if (bestPlanet) {
+    state.hoverPlanet = bestPlanet.key;
+    var pos2 = orbitPos(bestPlanet, t);
+    var rAU = Math.hypot(pos2.x, pos2.y);
+    document.getElementById('tt-name').textContent = bestPlanet.name;
+    document.getElementById('tt-desig').textContent = 'T = ' + Math.pow(bestPlanet.a, 1.5).toFixed(2) + ' yr';
+    document.getElementById('tt-d').textContent = rAU.toFixed(3) + ' AU';
+    document.getElementById('tt-v').textContent = visVivaKms(bestPlanet.a, rAU) + ' km/s';
+  } else {
+    var mHit = state.showMPC && _mpcLoaded ? _mpcHit(x, y) : null;
+    if (mHit) {
+      _hoverMPC = mHit;
+      var ast = mHit.ast;
+      var apos = getMPCPosition(ast, _SIM_EPOCH_JD + t);
+      var ep = orbitPos(PLANETS[2], t);
+      var dAU = Math.hypot(apos.x - ep.x, apos.y - ep.y, apos.z);
+      var q = ast.a * (1 - ast.e);
+      var type = ast.a < 1 ? 'Aten' : q < 1.017 ? 'Apollo' : q < 1.3 ? 'Amor' : 'MBA';
+      document.getElementById('tt-name').textContent = ast.name || ast.designation;
+      document.getElementById('tt-desig').textContent = ast.designation + ' · ' + type + ' · H=' + (ast.H || '?');
+      document.getElementById('tt-d').textContent = (dAU / 0.00257).toFixed(2) + ' LD · ' + dAU.toFixed(4) + ' AU';
+      document.getElementById('tt-v').textContent = 'double-tap to focus';
+    } else {
+      hit = false;
+    }
+  }
+
+  if (hit) {
+    tt.classList.add('show');
+    tt.classList.add('mobile-tap');
+    if (_ttHideTimer) clearTimeout(_ttHideTimer);
+    _ttHideTimer = setTimeout(_hideTapTooltip, 2000);   // auto-hide after 2 s
+  } else {
+    _hideTapTooltip();                                  // tap on empty space
+  }
 }
 
 // ─── Touch controls ───────────────────────────────────────────
 // 1 finger: orbit. 2-finger pinch: dolly (ratio of finger distances).
 // 2-finger parallel drag: pan (centroid movement). Same math as the mouse.
+// touchend doubles as the tap / double-tap detector (dblclick never fires
+// reliably on mobile): a tap = ≤10px travel; two taps within 300 ms = the
+// same action as the desktop double-click.
 (function () {
   let touchOrbit = null;         // { x, y } — last 1-finger position
   let pinchDist  = null;         // last 2-finger distance
   let lastCX = 0, lastCY = 0;    // last 2-finger centroid
+  let tapStart = null;           // 1-finger touchstart position (tap test)
+  let lastTapT = 0;              // timestamp of the previous qualifying tap
+  let lastTapX = 0, lastTapY = 0;
 
   cv.addEventListener('touchstart', function (e) {
     _lastInteractT = performance.now();
@@ -2391,9 +2618,11 @@ function _updateSheetSummary(n) {
       lastCX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       lastCY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       touchOrbit = null;
+      tapStart = null;
       e.preventDefault();
     } else if (e.touches.length === 1) {
       touchOrbit = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      tapStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       pinchDist = null;
     }
   }, { passive: false });
@@ -2433,6 +2662,31 @@ function _updateSheetSummary(n) {
   }, { passive: false });
 
   cv.addEventListener('touchend', function (e) {
+    // ── Tap / double-tap detection ──
+    // A tap = single finger lifted after ≤10px of travel. Two taps within
+    // 300 ms and ~30px of each other = double-tap → same as dblclick.
+    var wasTap = false, tx = 0, ty = 0;
+    if (tapStart && e.touches.length === 0 && e.changedTouches.length === 1) {
+      var ct = e.changedTouches[0];
+      if (Math.hypot(ct.clientX - tapStart.x, ct.clientY - tapStart.y) <= 10) {
+        wasTap = true; tx = ct.clientX; ty = ct.clientY;
+      }
+    }
+    tapStart = null;
+    if (wasTap) {
+      var nowT = performance.now();
+      var rc = cv.getBoundingClientRect();
+      var mx = tx - rc.left, my = ty - rc.top;
+      if (nowT - lastTapT < 300 && Math.hypot(tx - lastTapX, ty - lastTapY) < 30) {
+        lastTapT = 0;
+        _hideTapTooltip();
+        _handleDoubleActivate(mx, my);       // same logic as the dblclick handler
+      } else {
+        lastTapT = nowT; lastTapX = tx; lastTapY = ty;
+        _mobileTap(mx, my);                  // tooltip + hover state (single tap)
+      }
+    }
+
     if (e.touches.length < 2) pinchDist = null;
     if (e.touches.length === 0) touchOrbit = null;
     else if (e.touches.length === 1) {

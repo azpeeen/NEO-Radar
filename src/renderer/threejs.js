@@ -381,7 +381,8 @@ class ThreeJSRenderer {
 
     var rect = container.getBoundingClientRect();
     this.W = rect.width; this.H = rect.height;
-    this.DPR = Math.max(1, window.devicePixelRatio || 1);
+    // Cap at 2: 3×+ DPR phones pay 2.25×+ the fragment cost for no visible gain
+    this.DPR = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
 
     // Adopt the existing #radar-canvas so every mouse/touch listener the page
     // attaches keeps working on the exact same DOM node.
@@ -495,7 +496,8 @@ class ThreeJSRenderer {
     this.starCamera.up.set(0, -1, 0);
     this.starCamera.lookAt(0, 0, 1);
 
-    var N = 3000, R = 500;
+    // Half the stars on small screens — invisible difference, real GPU savings
+    var N = window.innerWidth < 768 ? 1500 : 3000, R = 500;
     var rand = _mulberry32(42);                       // same sky every session
     var pos = new Float32Array(N * 3);
     var col = new Float32Array(N * 3);
@@ -825,7 +827,7 @@ class ThreeJSRenderer {
     var rect = this.container.getBoundingClientRect();
     this.W = Math.max(1, rect.width);
     this.H = Math.max(1, rect.height);
-    this.DPR = Math.max(1, window.devicePixelRatio || 1);
+    this.DPR = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
 
     this.renderer.setPixelRatio(this.DPR);
     this.renderer.setSize(this.W, this.H);
