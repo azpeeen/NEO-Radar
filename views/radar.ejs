@@ -625,8 +625,8 @@
       <div class="fh-desig" id="fh-desig">—</div>
       <div class="fh-rule"></div>
       <div class="fh-kv"><span class="k">VELOCITY</span><span class="v" id="fh-vel">—</span></div>
-      <div class="fh-kv"><span class="k">DIST SUN</span><span class="v" id="fh-sun">—</span></div>
-      <div class="fh-kv"><span class="k">DIST EARTH</span><span class="v" id="fh-earth">—</span></div>
+      <div class="fh-kv"><span class="k" id="fh-sun-k">DIST SUN</span><span class="v" id="fh-sun">—</span></div>
+      <div class="fh-kv"><span class="k" id="fh-earth-k">DIST EARTH</span><span class="v" id="fh-earth">—</span></div>
       <div class="fh-rule"></div>
       <div class="fh-exit" id="fh-exit"><span class="kbd-esc">ESC</span>EXIT FOCUS</div>
     </div>
@@ -940,7 +940,7 @@ if (_FOCUS_DATE) {
 
 const state = {
   selectedId: (_FOCUS_ID && NEOS.find(n => n.id === _FOCUS_ID)) ? _FOCUS_ID : (NEOS[0] && NEOS[0].id),
-  hoverId: null, hoverPlanet: null, hoverLuna: false,
+  hoverId: null, hoverPlanet: null, hoverMoon: null,
   filter: 'all', search: '',
   // playing=false → live mode (JD pinned to Date.now() every frame)
   // playing=true  → simulate mode (dt accumulates)
@@ -964,7 +964,7 @@ const state = {
   planetToggles: { mercury:true, venus:true, earth:true, mars:true, jupiter:true, saturn:true, uranus:true, neptune:true },
   // ── Focus mode — cinematic camera follow on the MAIN scene ──
   focusMode: false,        // true while focused (exit animation runs after → false)
-  focusTarget: null,       // { type:'neo'|'planet'|'luna'|'mpc', idx?|ast?, name, desig, a }
+  focusTarget: null,       // { type:'neo'|'planet'|'moon'|'mpc', idx?|id?|ast?, name, desig, a }
   focusLerp: 0,            // 0→1 entry animation progress (eased in tick)
   _camBeforeFocus: null,   // cam snapshot (6 numbers) restored on exit
 };
@@ -991,22 +991,18 @@ function orbitPos(o, t) {
   return { x:x*Math.cos(ang)-y*Math.sin(ang), y:x*Math.sin(ang)+y*Math.cos(ang), z:0 };
 }
 
-// ─── Moon — visual-only circular orbit ───────────────────────────────────────
-// Sole declaration of these globals: renderer3d.js (loaded earlier) reads them
-// at render time — do NOT redeclare there (classic scripts share global scope).
-const MOON_PERIOD = 27.321661;                                   // days, sidereal
-const MOON_A      = 0.00257;                                     // AU (384,400 km)
-const MOON_PHASE0 = ((9643 % MOON_PERIOD) / MOON_PERIOD) * 2 * Math.PI; // at sim epoch
-function moonPos(simTime) {                                      // geocentric, AU
-  var angle = MOON_PHASE0 + (simTime / MOON_PERIOD) * 2 * Math.PI;
-  // MOON_INCL (5.145° vs ecliptic) is declared by renderer3d.js — the tilt
-  // matches the renderer's inclined orbit circle exactly (node along +x)
-  var sa = Math.sin(angle);
-  return {
-    x: MOON_A * Math.cos(angle),
-    y: MOON_A * sa * Math.cos(MOON_INCL),
-    z: MOON_A * sa * Math.sin(MOON_INCL),
-  };
+// ─── Moons — the shared MOONS table + moonLocalPos live in renderer3d.js ─────
+// (classic scripts share the global scope; renderer3d.js loads first)
+function _moonWorldPos(id, t) {                                  // heliocentric, AU
+  var md = MOONS_BY_ID[id];
+  var pIdx = PLANETS.findIndex(function (p) { return p.key === md.parent; });
+  var pp = orbitPos(PLANETS[pIdx], t);
+  var lp = moonLocalPos(md, t);
+  return { x: pp.x + lp.x, y: pp.y + lp.y, z: lp.z, parentIdx: pIdx, parentPos: pp };
+}
+// Circular-orbit speed around the parent, km/s
+function _moonOrbSpeedKms(md) {
+  return (2 * Math.PI * md.a * 1.496e8) / (Math.abs(md.T) * 86400);
 }
 
 // ─── MPC asteroid layer (Layer 2 — Keplerian + Laplace-Lagrange secular) ─────
@@ -1594,8 +1590,6 @@ const _frame = {
   conjs: [],
   mpcDirty: false,
   hoverMPC: null,
-  luna: { x:0, y:0, z:0, visible:false },
-  focus: { moonActive:false },
   promoted: { active:false, focused:false, x:0, y:0, z:0, ex:0, ey:0, distLD:'', radius:0 },
 };
 
@@ -1621,12 +1615,7 @@ function tick(now) {
     }
   }
 
-  // Moon: heliocentric = Earth + geocentric circle (visual only, no physics)
-  {
-    const ef=_frame.planets[2], lf=_frame.luna;
-    lf.visible = ef.visible;
-    if (ef.visible) { const mp=moonPos(t); lf.x=ef.x+mp.x; lf.y=ef.y+mp.y; lf.z=mp.z; }
-  }
+  // Moons: computed renderer-side from the shared MOONS table (per parent)
 
   _frame.selIdx=-1; _frame.hovIdx=-1;
   for (let i=0;i<NEOS.length;i++) {
@@ -1691,18 +1680,17 @@ function tick(now) {
     const tg = state.focusTarget;
     const tp = _focusTargetPos(t);
 
-    // Focused planet/Moon may have its toggle off — force its frame slot on
-    if (tg.type === 'planet' || tg.type === 'luna') {
-      const idx = tg.type === 'planet' ? tg.idx : 2;
-      const pf = _frame.planets[idx];
-      if (!pf.visible) {
-        const pp = orbitPos(PLANETS[idx], t);
-        pf.x = pp.x; pf.y = pp.y; pf.visible = true; pf.conj = false;
-      }
-      if (tg.type === 'luna' && !_frame.luna.visible) {
-        const mp = moonPos(t);
-        _frame.luna.x = pf.x + mp.x; _frame.luna.y = pf.y + mp.y;
-        _frame.luna.z = mp.z; _frame.luna.visible = true;
+    // Focused planet/moon may have its (parent) toggle off — force the
+    // planet's frame slot on so the renderer draws the whole system
+    if (tg.type === 'planet' || tg.type === 'moon') {
+      const idx = tg.type === 'planet' ? tg.idx
+        : PLANETS.findIndex(p => p.key === MOONS_BY_ID[tg.id].parent);
+      if (idx >= 0) {
+        const pf = _frame.planets[idx];
+        if (!pf.visible) {
+          const pp = orbitPos(PLANETS[idx], t);
+          pf.x = pp.x; pf.y = pp.y; pf.visible = true; pf.conj = false;
+        }
       }
     }
 
@@ -1742,12 +1730,6 @@ function tick(now) {
       updateFocusHud(tp, t);
     }
   }
-
-  // "MOON" overlay label — only when the Moon takes part in the current focus
-  // (Earth focus or Moon focus) and its frame slot is actually visible
-  _frame.focus.moonActive = !!(state.focusTarget && _frame.luna.visible &&
-    (state.focusTarget.type === 'luna' ||
-     (state.focusTarget.type === 'planet' && PLANETS[state.focusTarget.idx].key === 'earth')));
 
   // Focused NEO index — the renderer hides that NEO's risk sphere (the
   // promoted rock mesh renders in its place); null when no NEO is focused
@@ -2002,16 +1984,15 @@ function _focusTargetPos(t) {
   var tg = state.focusTarget;
   if (tg.type === 'planet') return orbitPos(PLANETS[tg.idx], t);
   if (tg.type === 'neo')    return orbitPos(NEOS[tg.idx], t);
-  if (tg.type === 'luna') {
-    var ep = orbitPos(PLANETS[2], t), mp = moonPos(t);
-    return { x: ep.x + mp.x, y: ep.y + mp.y, z: mp.z };
-  }
+  if (tg.type === 'moon')   return _moonWorldPos(tg.id, t);
   return getMPCPosition(tg.ast, _SIM_EPOCH_JD + t);
 }
 
-var _fhVel   = document.getElementById('fh-vel');
-var _fhSun   = document.getElementById('fh-sun');
-var _fhEarth = document.getElementById('fh-earth');
+var _fhVel    = document.getElementById('fh-vel');
+var _fhSun    = document.getElementById('fh-sun');
+var _fhEarth  = document.getElementById('fh-earth');
+var _fhSunK   = document.getElementById('fh-sun-k');
+var _fhEarthK = document.getElementById('fh-earth-k');
 
 function updateFocusHud(pos, t) {
   var tg = state.focusTarget;
@@ -2019,14 +2000,18 @@ function updateFocusHud(pos, t) {
   var pz = pos.z || 0;
   var r = Math.hypot(pos.x, pos.y, pz);
   var ep = orbitPos(PLANETS[2], t);
-  if (tg.type === 'luna') {
-    // Circular geocentric orbit: speed is constant, distance stays ≈ MOON_A
-    var dGeo = Math.hypot(pos.x - ep.x, pos.y - ep.y, pz);
-    _fhVel.textContent   = '1.02 km/s';
-    _fhSun.textContent   = r.toFixed(3) + ' AU';
-    _fhEarth.textContent = Math.round(384400 * dGeo / MOON_A).toLocaleString('en-US') + ' km';
+  if (tg.type === 'moon') {
+    // Circular orbit around the parent: speed and radius are constant
+    var md = MOONS_BY_ID[tg.id];
+    _fhVel.textContent    = _moonOrbSpeedKms(md).toFixed(2) + ' km/s';
+    _fhSunK.textContent   = 'PERIOD';
+    _fhSun.textContent    = Math.abs(md.T).toFixed(2) + ' d';
+    _fhEarthK.textContent = 'DIST ' + md.parent.toUpperCase();
+    _fhEarth.textContent  = Math.round(md.a * 1.496e8).toLocaleString('en-US') + ' km';
     return;
   }
+  _fhSunK.textContent   = 'DIST SUN';
+  _fhEarthK.textContent = 'DIST EARTH';
   _fhVel.textContent = tg.a && r > 0 ? visVivaKms(tg.a, r).toFixed(1) + ' km/s' : '—';
   _fhSun.textContent = r.toFixed(3) + ' AU';
   if (tg.type === 'planet') {
@@ -2055,13 +2040,16 @@ function _setFocusDollyTargets(radiusAU, kind) {
   var minWorldR = 6 * (2 * distGuess * Math.tan(FOV_RAD / 2) / H);
   var rEff = Math.max(radiusAU, minWorldR);
   if (kind === 'earth')     _focusDistTarget = Math.max(radiusAU * 8, 0.0003);
-  else if (kind === 'luna') _focusDistTarget = Math.max(radiusAU * 6, 0.00008);
+  // Moons: the 0.00005 AU (~7,500 km) absolute floor keeps tiny moons
+  // (Phobos/Deimos) at a sane framing — their r×8 would be sub-near-plane
+  else if (kind === 'luna') _focusDistTarget = Math.max(radiusAU * 8, 0.00005);
   else if (kind === 'gas')  _focusDistTarget = radiusAU * 5;
   else                      _focusDistTarget = 0.0006;
-  // Dolly floor: asteroids (default kind) may scroll in VERY close; the
-  // named big bodies keep the tighter surface-hugging floor.
-  _focusMinDist = kind ? Math.max(rEff * 1.5, 3e-5)
-                       : 0.00003;
+  // Dolly floor: moons and asteroids may scroll in VERY close; the big
+  // bodies keep the tighter surface-hugging floor.
+  _focusMinDist = kind === 'luna' ? Math.max(radiusAU * 1.2, 8e-6)
+                : kind            ? Math.max(rEff * 1.5, 3e-5)
+                :                   0.00003;
 }
 
 function _beginFocusGlide() {
@@ -2086,10 +2074,13 @@ function _applyFocusTarget(target) {
     focusKind = p.key === 'earth' ? 'earth'
       : (p.key === 'jupiter' || p.key === 'saturn' || p.key === 'uranus' || p.key === 'neptune') ? 'gas'
       : null;
-  } else if (target.type === 'luna') {
-    target.a = 1.0; target.name = 'Moon';
-    target.desig = 'EARTH SATELLITE · P = 27.32 D';
-    radiusAU = REAL_RADIUS_AU.moon;
+  } else if (target.type === 'moon') {
+    var md = MOONS_BY_ID[target.id];
+    var mpar = PLANETS.find(function (p) { return p.key === md.parent; });
+    target.a = mpar ? mpar.a : 1.0;            // heliocentric fallback for the HUD
+    target.name = md.name;
+    target.desig = 'MOON OF ' + md.parent.toUpperCase() + ' · P = ' + Math.abs(md.T).toFixed(2) + ' D';
+    radiusAU = md.r;
     focusKind = 'luna';
   } else if (target.type === 'neo') {
     var n = NEOS[target.idx];
@@ -2119,7 +2110,7 @@ function enterFocus(target) {
   document.getElementById('focus-hud').classList.add('show');
   _container.classList.add('focus-active');
   document.getElementById('tooltip').classList.remove('show');
-  state.hoverId = null; state.hoverPlanet = null; _hoverMPC = null; state.hoverLuna = false;
+  state.hoverId = null; state.hoverPlanet = null; _hoverMPC = null; state.hoverMoon = null;
 }
 
 // Focus → focus swap (single click/tap on another object while focused):
@@ -2134,7 +2125,7 @@ function _switchFocus(target) {
 function _sameFocusTarget(a, b) {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === 'mpc') return a.ast === b.ast;
-  if (a.type === 'luna') return true;
+  if (a.type === 'moon') return a.id === b.id;
   return a.idx === b.idx;
 }
 
@@ -2152,15 +2143,6 @@ function _focusHitTest(mx, my) {
   }
   if (bestIdx >= 0) return { type: 'neo', idx: bestIdx };
   if (state.showPlanets) {
-    var luna = _renderer.getLunaScreenPos();
-    if (luna && luna.sep > 3) {
-      var dL = Math.hypot(mx - luna.x, my - luna.y);
-      if (dL < luna.r + 8) {
-        var epL = orbitPos(PLANETS[2], t), esL = ws(epL.x, epL.y, 0);
-        var dTerra = esL ? Math.hypot(mx - esL.x, my - esL.y) : Infinity;
-        if (dL < dTerra - 15) return { type: 'luna' };  // Earth-priority rule
-      }
-    }
     var bestP = -1, bestPD = 18;
     for (var j = 0; j < PLANETS.length; j++) {
       if (!state.planetToggles[PLANETS[j].key]) continue;
@@ -2170,6 +2152,14 @@ function _focusHitTest(mx, my) {
       if (dp < bestPD) { bestPD = dp; bestP = j; }
     }
     if (bestP >= 0) return { type: 'planet', idx: bestP };
+    // Moons — after planets; sep>3 skips moons buried in the parent's disc
+    for (var mi2 = 0; mi2 < MOONS.length; mi2++) {
+      var msp = _renderer.getMoonScreenPos(MOONS[mi2].id);
+      if (!msp || msp.sep <= 3) continue;
+      if (Math.hypot(mx - msp.x, my - msp.y) < msp.r + 8) {
+        return { type: 'moon', id: MOONS[mi2].id };
+      }
+    }
   }
   if (state.showMPC && _mpcLoaded) {
     var hit = _mpcHit(mx, my);
@@ -2282,13 +2272,9 @@ function _handleDoubleActivate(mx, my) {
   if (nowA - _lastActivateT < 500) return;
   _lastActivateT = nowA;
   if (state.focusTarget) {
-    const tg = state.focusTarget;
-    // A double-click on the orbiting Moon while Earth is focused is a
-    // re-focus (handled by the click listener) — don't exit
-    if (tg.type === 'planet' && PLANETS[tg.idx].key === 'earth') {
-      const luna = _renderer.getLunaScreenPos();
-      if (luna && Math.hypot(mx - luna.x, my - luna.y) < Math.max(12, luna.r + 6)) return;
-    }
+    // A double-click that lands on any object is a focus switch (the single
+    // click already handled it) — never an exit
+    if (_focusHitTest(mx, my)) return;
     // Exit when the double-click lands on empty space (off the focused body)
     const tp = _focusTargetPos(state.simTime);
     const s = ws(tp.x, tp.y, tp.z);
@@ -2300,8 +2286,8 @@ function _handleDoubleActivate(mx, my) {
   if (state.hoverId) {
     const idx = NEOS.findIndex(n => n.id === state.hoverId);
     if (idx >= 0) enterFocus({ type: 'neo', idx });
-  } else if (state.hoverLuna) {
-    enterFocus({ type: 'luna' });
+  } else if (state.hoverMoon) {
+    enterFocus({ type: 'moon', id: state.hoverMoon });
   } else if (state.hoverPlanet) {
     const idx = PLANETS.findIndex(p => p.key === state.hoverPlanet);
     if (idx >= 0) enterFocus({ type: 'planet', idx });
@@ -2368,22 +2354,15 @@ cv.addEventListener('mousemove',e=>{
       if(d<bestPD){bestPD=d;bestPlanet=p;}
     }
   }
-  // Moon hover — only once it is visually clear of Earth's disc (sep > 3px),
-  // and only when the cursor is closer to the Moon than to any planet
-  state.hoverLuna=false;
-  let lunaHit=false;
-  if(!best && state.showPlanets && state.planetToggles.earth){
-    const luna=_renderer.getLunaScreenPos();
-    if(luna && luna.sep>3){
-      const dL=Math.hypot(x-luna.x,y-luna.y);
-      if(dL<luna.r+8 && (!bestPlanet||dL<bestPD)) lunaHit=true;
-      if(lunaHit){
-        // Earth priority: the Moon only takes the hover when it is clearly
-        // (15px) closer to the cursor than Earth
-        const ep=orbitPos(PLANETS[2],state.simTime), es=ws(ep.x,ep.y,0);
-        const dTerra=es?Math.hypot(x-es.x,y-es.y):Infinity;
-        lunaHit = lunaHit && (dL < dTerra - 15);
-      }
+  // Moon hover — checked after NEOs and planets (a planet within its hit
+  // radius wins); sep>3 skips moons buried inside the parent's disc
+  state.hoverMoon=null;
+  let moonHit=null;
+  if(!best && !bestPlanet && state.showPlanets){
+    for(let mi=0;mi<MOONS.length;mi++){
+      const msp=_renderer.getMoonScreenPos(MOONS[mi].id);
+      if(!msp||msp.sep<=3)continue;
+      if(Math.hypot(x-msp.x,y-msp.y)<msp.r+8){moonHit=MOONS[mi];break;}
     }
   }
   const tt=document.getElementById('tooltip');
@@ -2394,14 +2373,6 @@ cv.addEventListener('mousemove',e=>{
     document.getElementById('tt-desig').textContent=best.desig;
     document.getElementById('tt-d').textContent=`${best.nextLD} LD · ${best.nextKm} km`;
     document.getElementById('tt-v').textContent=`${best.vel} km/s`;
-    cv.style.cursor='pointer';
-  } else if(lunaHit){
-    state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null; state.hoverLuna=true;
-    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
-    document.getElementById('tt-name').textContent='Moon';
-    document.getElementById('tt-desig').textContent='EARTH SATELLITE · P = 27.32 D';
-    document.getElementById('tt-d').textContent='1.00 LD · 384,400 km';
-    document.getElementById('tt-v').textContent='1.02 km/s';
     cv.style.cursor='pointer';
   } else if(bestPlanet){
     state.hoverId=null; state.hoverPlanet=bestPlanet.key; _hoverMPC=null;
@@ -2414,6 +2385,17 @@ cv.addEventListener('mousemove',e=>{
     document.getElementById('tt-desig').textContent=`T = ${T_yr.toFixed(2)} yr`;
     document.getElementById('tt-d').textContent=`${r_AU.toFixed(3)} AU`;
     document.getElementById('tt-v').textContent=`${spd} km/s`;
+    cv.style.cursor='pointer';
+  } else if(moonHit){
+    state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null; state.hoverMoon=moonHit.id;
+    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
+    const mw=_moonWorldPos(moonHit.id,state.simTime);
+    const epm=orbitPos(PLANETS[2],state.simTime);
+    const dAUm=Math.hypot(mw.x-epm.x,mw.y-epm.y,mw.z);
+    document.getElementById('tt-name').textContent=moonHit.name;
+    document.getElementById('tt-desig').textContent='MOON OF '+moonHit.parent.toUpperCase()+' · P = '+Math.abs(moonHit.T).toFixed(2)+' D';
+    document.getElementById('tt-d').textContent=Math.round(dAUm*1.496e8).toLocaleString('en-US')+' km · '+(dAUm/0.00257).toFixed(2)+' LD';
+    document.getElementById('tt-v').textContent=_moonOrbSpeedKms(moonHit).toFixed(2)+' km/s';
     cv.style.cursor='pointer';
   } else if(state.showMPC && _mpcLoaded) {
     // ── MPC asteroid hover via O(1) spatial hash ──────────────────────────
@@ -2448,7 +2430,7 @@ cv.addEventListener('mousemove',e=>{
 
 cv.addEventListener('mouseleave',()=>{
   _dragMode=null; _dragArmed=null;
-  state.hoverId=null; state.hoverPlanet=null; state.hoverLuna=false;
+  state.hoverId=null; state.hoverPlanet=null; state.hoverMoon=null;
   document.getElementById('tooltip').classList.remove('show');
   cv.style.cursor='grab';
 });
@@ -2513,7 +2495,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&state.focusMode){exitFocus();return;}
   if((e.key==='f'||e.key==='F')&&!state.focusTarget){
     if(state.hoverId){const idx=NEOS.findIndex(n=>n.id===state.hoverId);if(idx>=0)enterFocus({type:'neo',idx});}
-    else if(state.hoverLuna){enterFocus({type:'luna'});}
+    else if(state.hoverMoon){enterFocus({type:'moon',id:state.hoverMoon});}
     else if(state.hoverPlanet){const idx=PLANETS.findIndex(p=>p.key===state.hoverPlanet);if(idx>=0)enterFocus({type:'planet',idx});}
     else if(_hoverMPC){enterFocus({type:'mpc',ast:_hoverMPC.ast});}
     return;
@@ -2694,21 +2676,8 @@ function _mobileTap(x, y) {
     var d = Math.hypot(s.x - x, s.y - y);
     if (d < bestD) { bestD = d; best = NEOS[i]; }
   }
-  var lunaTap = false;
-  if (!best && state.showPlanets && state.planetToggles.earth) {
-    var luna = _renderer.getLunaScreenPos();
-    if (luna && luna.sep > 3) {
-      var dL = Math.hypot(x - luna.x, y - luna.y);
-      if (dL < luna.r + 12) {
-        // Earth priority — same 15px rule as the mouse hover
-        var epT = orbitPos(PLANETS[2], t), esT = ws(epT.x, epT.y, 0);
-        var dTerra = esT ? Math.hypot(x - esT.x, y - esT.y) : Infinity;
-        lunaTap = dL < dTerra - 15;
-      }
-    }
-  }
   var bestPlanet = null, bestPD = 24;
-  if (!best && !lunaTap && state.showPlanets) {
+  if (!best && state.showPlanets) {
     for (var j = 0; j < PLANETS.length; j++) {
       var pl = PLANETS[j];
       if (!state.planetToggles[pl.key]) continue;
@@ -2718,8 +2687,17 @@ function _mobileTap(x, y) {
       if (dp < bestPD) { bestPD = dp; bestPlanet = pl; }
     }
   }
+  // Moons — after planets; sep>3 skips moons buried in the parent's disc
+  var moonTap = null;
+  if (!best && !bestPlanet && state.showPlanets) {
+    for (var mi = 0; mi < MOONS.length; mi++) {
+      var msp = _renderer.getMoonScreenPos(MOONS[mi].id);
+      if (!msp || msp.sep <= 3) continue;
+      if (Math.hypot(x - msp.x, y - msp.y) < msp.r + 12) { moonTap = MOONS[mi]; break; }
+    }
+  }
 
-  state.hoverId = null; state.hoverPlanet = null; state.hoverLuna = false; _hoverMPC = null;
+  state.hoverId = null; state.hoverPlanet = null; state.hoverMoon = null; _hoverMPC = null;
   var hit = true;
   if (best) {
     state.hoverId = best.id;
@@ -2727,12 +2705,6 @@ function _mobileTap(x, y) {
     document.getElementById('tt-desig').textContent = best.desig;
     document.getElementById('tt-d').textContent = best.nextLD + ' LD · ' + best.nextKm + ' km';
     document.getElementById('tt-v').textContent = best.vel + ' km/s';
-  } else if (lunaTap) {
-    state.hoverLuna = true;
-    document.getElementById('tt-name').textContent = 'Moon';
-    document.getElementById('tt-desig').textContent = 'EARTH SATELLITE · P = 27.32 D';
-    document.getElementById('tt-d').textContent = '1.00 LD · 384,400 km';
-    document.getElementById('tt-v').textContent = '1.02 km/s';
   } else if (bestPlanet) {
     state.hoverPlanet = bestPlanet.key;
     var pos2 = orbitPos(bestPlanet, t);
@@ -2741,6 +2713,15 @@ function _mobileTap(x, y) {
     document.getElementById('tt-desig').textContent = 'T = ' + Math.pow(bestPlanet.a, 1.5).toFixed(2) + ' yr';
     document.getElementById('tt-d').textContent = rAU.toFixed(3) + ' AU';
     document.getElementById('tt-v').textContent = visVivaKms(bestPlanet.a, rAU) + ' km/s';
+  } else if (moonTap) {
+    state.hoverMoon = moonTap.id;
+    var mwT = _moonWorldPos(moonTap.id, t);
+    var epT2 = orbitPos(PLANETS[2], t);
+    var dAUt = Math.hypot(mwT.x - epT2.x, mwT.y - epT2.y, mwT.z);
+    document.getElementById('tt-name').textContent = moonTap.name;
+    document.getElementById('tt-desig').textContent = 'MOON OF ' + moonTap.parent.toUpperCase() + ' · P = ' + Math.abs(moonTap.T).toFixed(2) + ' D';
+    document.getElementById('tt-d').textContent = Math.round(dAUt * 1.496e8).toLocaleString('en-US') + ' km · ' + (dAUt / 0.00257).toFixed(2) + ' LD';
+    document.getElementById('tt-v').textContent = _moonOrbSpeedKms(moonTap).toFixed(2) + ' km/s';
   } else {
     var mHit = state.showMPC && _mpcLoaded ? _mpcHit(x, y) : null;
     if (mHit) {

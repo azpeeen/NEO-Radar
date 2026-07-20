@@ -29,6 +29,27 @@ const TEXTURES = {
   'uranus.jpg':       '2k_uranus.jpg',
   'neptune.jpg':      '2k_neptune.jpg',
   'moon.jpg':         '2k_moon.jpg',
+  // Moons — most have no Solar System Scope map: a 404 is fine, the renderer
+  // falls back to a flat color per moon.
+  'phobos.jpg':       '2k_phobos.jpg',
+  'deimos.jpg':       '2k_deimos.jpg',
+  'io.jpg':           '2k_io.jpg',
+  'europa.jpg':       '2k_europa.jpg',
+  'ganymede.jpg':     '2k_ganymede.jpg',
+  'callisto.jpg':     '2k_callisto.jpg',
+  'mimas.jpg':        '2k_mimas.jpg',
+  'enceladus.jpg':    '2k_enceladus.jpg',
+  'tethys.jpg':       '2k_tethys.jpg',
+  'dione.jpg':        '2k_dione.jpg',
+  'rhea.jpg':         '2k_rhea.jpg',
+  'titan.jpg':        '2k_titan.jpg',
+  'iapetus.jpg':      '2k_iapetus.jpg',
+  'miranda.jpg':      '2k_miranda.jpg',
+  'ariel.jpg':        '2k_ariel.jpg',
+  'umbriel.jpg':      '2k_umbriel.jpg',
+  'titania.jpg':      '2k_titania.jpg',
+  'oberon.jpg':       '2k_oberon.jpg',
+  'triton.jpg':       '2k_triton.jpg',
 };
 
 function fetchFile(url, dest, redirects = 0) {

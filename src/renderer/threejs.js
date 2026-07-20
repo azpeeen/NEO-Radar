@@ -84,15 +84,66 @@ var AXIAL_TILT = {
   jupiter: 3.13,  saturn: 26.73, uranus: 97.77, neptune: 28.32,
 };
 
-// Moon — visual-only circular orbit. MOON_PERIOD, MOON_A and MOON_PHASE0 are
-// NOT declared here: the page (radar.ejs) declares them as top-level const —
-// a classic script sharing the global scope — and every use below runs after
-// the page script has evaluated. Redeclaring them here would throw
-// "Identifier has already been declared" and kill the page script.
-var MOON_INCL = 5.145 * Math.PI / 180;                         // vs ecliptic
+// ── Moons — visual-only circular orbits around their parent planets ──────────
+// a in AU, T in days (negative = retrograde: Triton), i in degrees vs the
+// ecliptic (simplified), r = physical radius in AU (radius_km / 1.496e8).
+// Shared with the page: classic scripts share the global scope, so radar.ejs
+// reads MOONS / MOONS_BY_ID / moonLocalPos for hit tests and focus follow.
+var MOONS = [
+  // Earth
+  { id:'moon',      parent:'earth',   a:0.00257,  T:27.3217, i:5.145, r:1.161e-5, name:'Moon',      tidal:true },
+  // Mars
+  { id:'phobos',    parent:'mars',    a:6.267e-5, T:0.3189,  i:1.093, r:7.41e-8,  name:'Phobos',    tidal:true },
+  { id:'deimos',    parent:'mars',    a:1.568e-4, T:1.2624,  i:1.788, r:4.14e-8,  name:'Deimos',    tidal:true },
+  // Jupiter (Galilean)
+  { id:'io',        parent:'jupiter', a:2.819e-3, T:1.7691,  i:0.036, r:1.218e-5, name:'Io',        tidal:true },
+  { id:'europa',    parent:'jupiter', a:4.486e-3, T:3.5512,  i:0.466, r:1.043e-5, name:'Europa',    tidal:true },
+  { id:'ganymede',  parent:'jupiter', a:7.155e-3, T:7.1546,  i:0.177, r:1.761e-5, name:'Ganymede',  tidal:true },
+  { id:'callisto',  parent:'jupiter', a:1.259e-2, T:16.689,  i:0.192, r:1.611e-5, name:'Callisto',  tidal:true },
+  // Saturn
+  { id:'mimas',     parent:'saturn',  a:1.243e-3, T:0.9424,  i:1.574, r:1.325e-6, name:'Mimas',     tidal:true },
+  { id:'enceladus', parent:'saturn',  a:1.593e-3, T:1.3702,  i:0.009, r:1.685e-6, name:'Enceladus', tidal:true },
+  { id:'tethys',    parent:'saturn',  a:1.971e-3, T:1.8878,  i:1.091, r:3.550e-6, name:'Tethys',    tidal:true },
+  { id:'dione',     parent:'saturn',  a:2.524e-3, T:2.7369,  i:0.028, r:3.753e-6, name:'Dione',     tidal:true },
+  { id:'rhea',      parent:'saturn',  a:3.523e-3, T:4.5175,  i:0.333, r:5.106e-6, name:'Rhea',      tidal:true },
+  { id:'titan',     parent:'saturn',  a:8.168e-3, T:15.945,  i:0.349, r:1.721e-5, name:'Titan',     tidal:true },
+  { id:'iapetus',   parent:'saturn',  a:2.381e-2, T:79.330,  i:15.47, r:4.910e-6, name:'Iapetus',   tidal:true },
+  // Uranus
+  { id:'miranda',   parent:'uranus',  a:8.711e-4, T:1.4135,  i:4.338, r:1.576e-6, name:'Miranda',   tidal:true },
+  { id:'ariel',     parent:'uranus',  a:1.276e-3, T:2.5204,  i:0.041, r:3.870e-6, name:'Ariel',     tidal:true },
+  { id:'umbriel',   parent:'uranus',  a:1.780e-3, T:4.1442,  i:0.128, r:3.908e-6, name:'Umbriel',   tidal:true },
+  { id:'titania',   parent:'uranus',  a:2.917e-3, T:8.7059,  i:0.079, r:5.270e-6, name:'Titania',   tidal:true },
+  { id:'oberon',    parent:'uranus',  a:3.910e-3, T:13.463,  i:0.068, r:5.090e-6, name:'Oberon',    tidal:true },
+  // Neptune
+  { id:'triton',    parent:'neptune', a:2.371e-3, T:-5.877,  i:156.8, r:9.047e-6, name:'Triton',    tidal:true },
+];
 
-function moonOrbitAngle(simTime) {
-  return MOON_PHASE0 + (simTime / MOON_PERIOD) * Math.PI * 2;
+var MOONS_BY_ID = {};
+for (var _mn = 0; _mn < MOONS.length; _mn++) MOONS_BY_ID[MOONS[_mn].id] = MOONS[_mn];
+
+// Flat-color fallbacks — Solar System Scope only ships a map for the Moon,
+// every other moon texture 404s and keeps its color.
+var MOON_FALLBACK = {
+  io: 0xd4a843, europa: 0xc8b89a, ganymede: 0x808080, callisto: 0x808080,
+  titan: 0xd4823c,
+};
+
+// Local circular-orbit offset from the parent at simTime (days from the sim
+// epoch JD 2461188.0 = J2000 + 9643 d — same phase convention the page's old
+// moonPos() used, so the Moon keeps its position across this refactor).
+function moonLocalPos(data, simTime) {
+  var Tabs = Math.abs(data.T);
+  var phase0 = ((9643 % Tabs) / Tabs) * 2 * Math.PI;
+  var sign = data.T < 0 ? -1 : 1;
+  var angle = phase0 + sign * (simTime / Tabs) * 2 * Math.PI;
+  var iRad = data.i * Math.PI / 180;
+  var sa = Math.sin(angle);
+  return {
+    x: data.a * Math.cos(angle),
+    y: data.a * sa * Math.cos(iRad),
+    z: data.a * sa * Math.sin(iRad),
+    angle: angle,
+  };
 }
 
 /* ── Seeded PRNG + string hash (deterministic asteroid shapes) ───────────── */
@@ -430,10 +481,10 @@ class ThreeJSRenderer {
     this.octx = this.overlay.getContext('2d');
 
     this.scene = new THREE.Scene();
-    // Free-orbit perspective camera — near 1e-5 AU (≈1500 km) to 500 AU; the
-    // logarithmicDepthBuffer makes that range artifact-free (and only works
-    // correctly with a perspective projection).
-    this.camera = new THREE.PerspectiveCamera(FOV_DEG, this.W / Math.max(1, this.H), 1e-5, 500);
+    // Free-orbit perspective camera — near 1e-6 AU (≈150 km, close enough
+    // for the small moons) to 500 AU; the logarithmicDepthBuffer makes that
+    // range artifact-free (and only works with a perspective projection).
+    this.camera = new THREE.PerspectiveCamera(FOV_DEG, this.W / Math.max(1, this.H), 1e-6, 500);
     this.camera.up.set(0, 0, 1);
     this._camPos = new THREE.Vector3();
     this._vpMat = new THREE.Matrix4();
@@ -453,7 +504,7 @@ class ThreeJSRenderer {
     this._buildStars();
     this._buildSun();
     this._buildPlanets();
-    this._buildMoon();
+    this._buildMoons();
     this._buildNEOs();
     this._buildCone();
 
@@ -671,41 +722,55 @@ class ThreeJSRenderer {
     this._earthIdx = this.planets.findIndex(function (p) { return p.def.key === 'earth'; });
   }
 
-  _buildMoon() {
-    this._moonGeo = new THREE.SphereGeometry(1, 24, 16);
-    this._moonMaterial = new THREE.MeshStandardMaterial({
-      color: this._col('#a0a0a0'),                    // fallback until moon.jpg loads
-      roughness: 0.95,
-      metalness: 0.0,
+  _buildMoons() {
+    var self = this;
+    // Parent lookup: planet key → index into this.planets / frame.planets
+    this._planetIdxByKey = {};
+    this.planets.forEach(function (p, i) { self._planetIdxByKey[p.def.key] = i; });
+
+    this._moonGeoShared = new THREE.SphereGeometry(1, 24, 16);
+    this._moons = {};
+    MOONS.forEach(function (data) {
+      var mat = new THREE.MeshStandardMaterial({
+        color: self._col(MOON_FALLBACK[data.id] != null ? MOON_FALLBACK[data.id] : 0x999999),
+        roughness: 0.95,
+        metalness: 0.0,
+      });
+      var mesh = new THREE.Mesh(self._moonGeoShared, mat);
+      // Texture pole → +Z. Euler XYZ applies the tidal spin (rotation.y)
+      // about the geometry pole BEFORE this pre-tilt.
+      mesh.rotation.x = Math.PI / 2;
+      var group = new THREE.Group();
+      group.add(mesh);
+      group.visible = false;
+      self.scene.add(group);
+
+      // Orbit ring baked at radius a in the moon's orbital plane (tilt i) —
+      // recentred on the parent every frame
+      var N = 64, pts = new Float32Array(N * 3);
+      var iRad = data.i * Math.PI / 180, ci = Math.cos(iRad), si = Math.sin(iRad);
+      for (var k = 0; k < N; k++) {
+        var a2 = (k / N) * Math.PI * 2, s2 = Math.sin(a2);
+        pts[k * 3]     = data.a * Math.cos(a2);
+        pts[k * 3 + 1] = data.a * s2 * ci;
+        pts[k * 3 + 2] = data.a * s2 * si;
+      }
+      var ogeo = new THREE.BufferGeometry();
+      ogeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+      var orbit = new THREE.LineLoop(ogeo, new THREE.LineBasicMaterial({
+        color: 0x888888,
+        transparent: true,
+        opacity: 0.15,
+      }));
+      orbit.frustumCulled = false;
+      orbit.visible = false;
+      self.scene.add(orbit);
+
+      self._moons[data.id] = {
+        data: data, group: group, mesh: mesh, orbit: orbit,
+        screen: null, labelOn: false,
+      };
     });
-    this._moonMesh = new THREE.Mesh(this._moonGeo, this._moonMaterial);
-    this._moonMesh.rotation.x = -Math.PI / 2;         // same pole alignment as planets
-    this._moonMesh.visible = false;
-    this.scene.add(this._moonMesh);
-
-    // Geocentric orbit: unit circle scaled to MOON_A, re-centered on Earth per
-    // frame. rotation.x tips the circle by the real lunar inclination so it
-    // matches the z the page's moonPos() now produces.
-    var N = 64, pts = new Float32Array(N * 3);
-    for (var i = 0; i < N; i++) {
-      var a = (i / N) * Math.PI * 2;
-      pts[i * 3] = Math.cos(a);
-      pts[i * 3 + 1] = Math.sin(a);
-    }
-    var geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-    this._moonOrbit = new THREE.LineLoop(geo, new THREE.LineBasicMaterial({
-      color: 0x888888,
-      transparent: true,
-      opacity: 0.15,
-    }));
-    this._moonOrbit.scale.setScalar(MOON_A);
-    this._moonOrbit.rotation.x = MOON_INCL;
-    this._moonOrbit.frustumCulled = false;
-    this._moonOrbit.visible = false;
-    this.scene.add(this._moonOrbit);
-
-    this._lunaState = null;                           // last frame.luna, for hit testing
   }
 
   // The Solar System Scope ring texture is a radial strip: u = radius.
@@ -811,10 +876,13 @@ class ThreeJSRenderer {
       self._sunMaterial.needsUpdate = true;
     });
 
-    load('moon.jpg', function (tex) {
-      self._moonMaterial.map = tex;
-      self._moonMaterial.color.set(0xffffff);
-      self._moonMaterial.needsUpdate = true;
+    Object.keys(this._moons).forEach(function (id) {
+      var m = self._moons[id];
+      load(id + '.jpg', function (tex) {
+        m.mesh.material.map = tex;
+        m.mesh.material.color.set(0xffffff);
+        m.mesh.material.needsUpdate = true;
+      });
     });
 
     this.planets.forEach(function (p) {
@@ -1171,38 +1239,51 @@ class ThreeJSRenderer {
     }
   }
 
-  _drawMoon(state, frame) {
-    var lf = frame.luna;
-    var earth = this._earthIdx >= 0 ? frame.planets[this._earthIdx] : null;
-    var visible = !!(lf && lf.visible && earth && earth.visible);
-    this._moonMesh.visible = visible;
-    if (!visible) { this._lunaState = null; this._moonOrbit.visible = false; return; }
-    this._moonMesh.position.set(lf.x, lf.y, lf.z);
-    var wpp = this._wpp1 * this._camDist(lf.x, lf.y, lf.z);
-    var r = Math.max(REAL_RADIUS_AU.moon, MIN_PX.moon * wpp);
-    this._moonMesh.scale.setScalar(r);
-    this._lunaState = { x: lf.x, y: lf.y, z: lf.z, ex: earth.x, ey: earth.y, rPx: r / wpp };
-    this._moonOrbit.visible = !!state.showOrbits;
-    // Tidally locked: same face always toward Earth
-    this._moonMesh.rotation.y = -moonOrbitAngle(state.simTime);
-    this._moonOrbit.position.set(earth.x, earth.y, 0);
+  _drawMoons(state, frame) {
+    for (var id in this._moons) {
+      var m = this._moons[id];
+      var pIdx = this._planetIdxByKey[m.data.parent];
+      var pf = pIdx != null ? frame.planets[pIdx] : null;
+      var visible = !!(pf && pf.visible);
+      m.group.visible = visible;
+      m.orbit.visible = false;
+      m.labelOn = false;
+      if (!visible) { m.screen = null; continue; }
+
+      var lp = moonLocalPos(m.data, state.simTime);
+      var mx = pf.x + lp.x, my = pf.y + lp.y, mz = lp.z;
+      m.group.position.set(mx, my, mz);
+
+      // NEO-sized min-px dot from afar, true physical radius up close
+      var wpp = this._wpp1 * this._camDist(mx, my, mz);
+      var r = Math.max(m.data.r, 1.5 * wpp);
+      m.group.scale.setScalar(r);
+
+      // Tidally locked: the same face keeps pointing at the parent.
+      // Math.PI − angle turns the texture near side toward the planet.
+      if (m.data.tidal) m.mesh.rotation.y = Math.PI - lp.angle;
+
+      // Screen cache for page hit tests + labels. sep = on-screen distance to
+      // the parent's centre (page skips moons buried inside the parent disc).
+      var s = this._ws(mx, my, mz);
+      var ps = this._ws(pf.x, pf.y, 0);
+      var sep = (s && ps) ? Math.hypot(s.x - ps.x, s.y - ps.y) : 1e9;
+      m.screen = s ? { x: s.x, y: s.y, r: Math.max(3, r / wpp), sep: sep } : null;
+
+      // Orbit ring + label only while the camera is inside the parent system
+      var nearParent = this._camDist(pf.x, pf.y, 0) < 1;
+      m.orbit.visible = !!state.showOrbits && nearParent;
+      if (m.orbit.visible) m.orbit.position.set(pf.x, pf.y, 0);
+      m.labelOn = nearParent && !!s && sep > 14;
+    }
   }
 
-  /** Screen position (CSS px) + apparent radius of the Moon in the map — used
-   *  by the page for hover/click hit testing. sep = on-screen distance to
-   *  Earth's centre so the page can skip the check while the Moon is buried
-   *  in Earth's disc. Null when hidden or behind the camera. */
-  getLunaScreenPos() {
-    var l = this._lunaState;
-    if (!l) return null;
-    var s = this._ws(l.x, l.y, l.z);
-    if (!s) return null;
-    var es = this._ws(l.ex, l.ey, 0);
-    return {
-      x: s.x, y: s.y,
-      r: Math.max(3, l.rPx || 3),
-      sep: es ? Math.hypot(s.x - es.x, s.y - es.y) : 1e9,
-    };
+  /** Screen position (CSS px) + apparent radius of a moon — used by the page
+   *  for hover/click hit testing. sep = on-screen distance to the parent's
+   *  centre. Null when hidden or behind the camera. */
+  getMoonScreenPos(id) {
+    var m = this._moons[id];
+    return m && m.group.visible ? m.screen : null;
   }
 
   _drawNEOs(state, frame) {
@@ -1322,20 +1403,17 @@ class ThreeJSRenderer {
         if (!sp) continue;
         g.fillText(p.def.name, sp.x + p.def.r + 6, sp.y + 3);
       }
-      // Moon label — focus mode only (frame.focus.moonActive): centred just
-      // below the projected disc
-      if (frame.focus && frame.focus.moonActive && this._lunaState) {
-        var lm = this._lunaState;
-        var ls = this._ws(lm.x, lm.y, lm.z);
-        if (ls) {
-          g.save();
-          g.font = '9px "JetBrains Mono", monospace';
-          g.fillStyle = 'rgba(200,210,230,0.6)';
-          g.textAlign = 'center';
-          g.fillText('MOON', ls.x, ls.y + Math.max(3, lm.rPx || 3) + 8);
-          g.restore();
-        }
+      // Moon labels — while the camera is inside a parent system and each
+      // moon is clear of the parent's disc (labelOn from _drawMoons)
+      g.save();
+      g.font = '9px "JetBrains Mono", monospace';
+      g.fillStyle = 'rgba(200,210,230,0.6)';
+      for (var mid in this._moons) {
+        var mm = this._moons[mid];
+        if (!mm.group.visible || !mm.labelOn || !mm.screen) continue;
+        g.fillText(mm.data.name, mm.screen.x + mm.screen.r + 5, mm.screen.y + 3);
       }
+      g.restore();
     }
 
     this._drawConjunctions(state, frame, g);
@@ -1452,8 +1530,7 @@ class ThreeJSRenderer {
    *   focusNeoIdx  index of the focused NEO (its risk sphere hides) | null
    *   focusMode    true while an object is focused
    *   focusPos     {x,y,z} of the focused object | null (currently unused here)
-   *   luna     {x,y,z,visible}
-   *   focus    {moonActive} — Moon takes part in the current focus (drives its label)
+   *   (moons are computed renderer-side from the MOONS table + state.simTime)
    *   cone     {active, risky, count, upper:Float32Array(N·3), lower:Float32Array(N·3)}
    *   jup      {active, ax,ay,az, bx,by,bz}
    *   conjs    [{pts:[{x,y},…]}]
@@ -1473,7 +1550,7 @@ class ThreeJSRenderer {
     this._updateCamera(frame.cam);
     this._drawSun();
     this._drawPlanets(state, frame, dt);
-    this._drawMoon(state, frame);
+    this._drawMoons(state, frame);
     this._drawNEOs(state, frame);
     this._drawConeMesh(state, frame);
     this._drawMPCAsteroids(state, frame);
