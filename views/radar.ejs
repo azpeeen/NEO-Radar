@@ -941,6 +941,7 @@ if (_FOCUS_DATE) {
 const state = {
   selectedId: (_FOCUS_ID && NEOS.find(n => n.id === _FOCUS_ID)) ? _FOCUS_ID : (NEOS[0] && NEOS[0].id),
   hoverId: null, hoverPlanet: null, hoverMoon: null,
+  hoverDwarf: null, hoverComet: null,   // indices into DWARF_PLANETS / COMETS
   filter: 'all', search: '',
   // playing=false → live mode (JD pinned to Date.now() every frame)
   // playing=true  → simulate mode (dt accumulates)
@@ -1470,13 +1471,36 @@ function buildOrbitPts(o, segments) {
   return pts;
 }
 
+// ─── Dwarf planets + comets — shared tables from renderer3d.js ───────────────
+// Elements carry M (deg) at the body's OWN epoch (d.epoch_jd, default J2000).
+// orbitPos() wants { om, w, phase } with phase = mean anomaly at the SIM epoch
+// (JD _SIM_EPOCH_JD) in radians — propagate M from its epoch once here.
+// Mean motion uses a^1.5 (Kepler) = the SAME rate orbitPos propagates with, so
+// each body lands exactly on its tabulated M at its own epoch: Halley (epoch
+// 2061-08, M≈0°) rewinds ~169° to 2026 → aphelion, only nearing the Sun in 2061.
+function _elemsFromEpoch(d) {
+  const epoch = d.epoch_jd != null ? d.epoch_jd : 2451545.0;   // default J2000
+  const n = 2 * Math.PI / (365.25 * Math.pow(d.a, 1.5));       // rad/day
+  return {
+    a: d.a, e: d.e, i: d.i, om: d.node, w: d.w,
+    phase: d.M * Math.PI / 180 + n * (_SIM_EPOCH_JD - epoch),
+  };
+}
+const DWARF_ELEMS = DWARF_PLANETS.map(_elemsFromEpoch);   // no epoch_jd → J2000, unchanged
+const COMET_ELEMS = COMETS.map(_elemsFromEpoch);
+
 const _container = document.querySelector('.canvas-area');
 const _renderer  = new ThreeJSRenderer(_container, {
   planets: PLANETS.map(p => ({ key:p.key, name:p.name, color:p.color, r:p.r, glow:!!p.glow, ring:!!p.ring, orbitPts: buildOrbitPts(p, 200) })),
   neos:    NEOS.map(n => ({ id:n.id, name:n.name, risk:n.risk, orbitPts: buildOrbitPts(n, 200) })),
+  // 512 segments for comets: uniform-M sampling starves the perihelion whip
+  // of points on e≈0.97 orbits (Halley) — denser sampling keeps the loop smooth
+  dwarfPlanets: DWARF_PLANETS.map((d, i) => ({ def: d, orbitPts: buildOrbitPts(DWARF_ELEMS[i], 200) })),
+  comets:       COMETS.map((c, i) => ({ def: c, orbitPts: buildOrbitPts(COMET_ELEMS[i], 512) })),
   textureBase: '/assets/textures/',
 });
 // Same #radar-canvas node as before — every mouse/touch listener stays valid
+window._R3D = _renderer;   // debug/console handle (const doesn't reach window)
 const cv = _renderer.domElement;
 let W=0, H=0, DPR=1;
 function resize() {
@@ -1584,6 +1608,12 @@ const _frame = {
   cam: { tx:0, ty:0, tz:0, dist:7, theta:0, phi:1.20 },
   planets: PLANETS.map(() => ({ x:0, y:0, visible:false, conj:false })),
   neos:    NEOS.map(() => ({ x:0, y:0, z:0 })),
+  dwarfPlanets: DWARF_PLANETS.map(() => ({ x:0, y:0, z:0, visible:true })),
+  comets:       COMETS.map(() => ({ x:0, y:0, z:0, visible:true, sunDist:99 })),
+  // Comet particle sim pace (see CometTail in renderer3d.js): a FRAME factor
+  // (~1 at 60 fps), NOT sim-days — the pool + per-frame velocities are frame-
+  // tuned, so this stays independent of the simulation clock speed.
+  simDt: 1.0,
   selIdx: -1, hovIdx: -1, focusNeoIdx: null, focusMode: false, focusPos: null,
   cone: { active:false, risky:false, count:_CONE_N, upper:_coneUpper, lower:_coneLower },
   jup:  { active:false, ax:0, ay:0, az:0, bx:0, by:0, bz:0 },
@@ -1596,6 +1626,11 @@ const _frame = {
 let last=performance.now();
 function tick(now) {
   const dt=Math.min(0.1,(now-last)/1000); last=now;
+  // Comet particle pace: normalize real-frame dt to a ~1.0-at-60fps factor
+  // (clamped) so the tails run at a stable wall-clock rate, independent of the
+  // simulation clock speed. Exposed to the renderer via _frame.simDt.
+  state._lastDt = Math.min(3, Math.max(0.2, dt * 60));
+  _frame.simDt = state._lastDt;
   if (state.playing) {
     // Simulate mode: advance time by wall-clock dt × simulation speed
     state.simTime += dt * state.daysPerSec * state.speed;
@@ -1616,6 +1651,17 @@ function tick(now) {
   }
 
   // Moons: computed renderer-side from the shared MOONS table (per parent)
+
+  // Dwarf planets + comets — same Kepler path as the planets (orbitPos)
+  for (let i=0;i<DWARF_ELEMS.length;i++) {
+    const f=_frame.dwarfPlanets[i], pos=orbitPos(DWARF_ELEMS[i],t);
+    f.x=pos.x; f.y=pos.y; f.z=pos.z||0; f.visible=true;
+  }
+  for (let i=0;i<COMET_ELEMS.length;i++) {
+    const f=_frame.comets[i], pos=orbitPos(COMET_ELEMS[i],t);
+    f.x=pos.x; f.y=pos.y; f.z=pos.z||0; f.visible=true;
+    f.sunDist=Math.hypot(f.x,f.y,f.z);   // renderer: coma/tail below 3 AU
+  }
 
   _frame.selIdx=-1; _frame.hovIdx=-1;
   for (let i=0;i<NEOS.length;i++) {
@@ -1718,6 +1764,16 @@ function tick(now) {
       state.cam.ty = S.ty + (tp.y - S.ty) * eF;
       state.cam.tz = S.tz + ((tp.z || 0) - S.tz) * eF;
       state.cam.dist = Math.exp(Math.log(S.dist) + (Math.log(_focusDistTarget) - Math.log(S.dist)) * eF);
+      // Comet: also swing the azimuth/elevation to the solar side (recomputed
+      // from the moving comet each frame; shortest-path theta interpolation).
+      if (state._focusOrientTarget) {
+        const o = _cometViewOrient(tp);
+        let dTheta = o.theta - S.theta;
+        while (dTheta > Math.PI) dTheta -= 2 * Math.PI;
+        while (dTheta < -Math.PI) dTheta += 2 * Math.PI;
+        state.cam.theta = S.theta + dTheta * eF;
+        state.cam.phi = S.phi + (o.phi - S.phi) * eF;
+      }
       if (state.focusLerp >= 1) _focusFollow = true;
       updateFocusHud(tp, t);
     } else {
@@ -1808,21 +1864,88 @@ function visVivaKms(a, r) {
   return +(v_AU_per_yr * 4.74057).toFixed(1); // 1 AU/yr = 4.74057 km/s (Earth: 2π AU/yr ≈ 29.8)
 }
 
+// ─── Unified search index (Change 3) ─────────────────────────────────────────
+// The 47 NEOs plus every navigable body: planets, moons, dwarf planets, comets,
+// and a famous shape-model asteroid. Typing searches ALL of these; picking a
+// non-NEO hit focuses it directly. Browsing (empty query) keeps the NEO-only
+// list filtered by the risk chip.
+function _cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+function _focusFromSearch(target){
+  // From the map: enterFocus. Already focused: hot-swap without an exit trip.
+  if (state.focusMode && !_exitAnim) _switchFocus(target);
+  else enterFocus(target);
+}
+function _focusMPCByName(keys){
+  // Bodies without their own orbit in the app (e.g. Vesta, a main-belt shape
+  // model) resolve to the MPC cloud by name/number when it's loaded.
+  if (!_mpcLoaded) return false;
+  var ast = _mpcAsteroids.find(function(a){
+    var nm=(a.name||'').toLowerCase(), dg=(a.designation||'').toLowerCase();
+    return keys.some(function(k){ return nm===k || dg===k || dg.replace(/\D/g,'')===k; });
+  });
+  if (ast) { _focusFromSearch({type:'mpc', ast:ast}); return true; }
+  return false;
+}
+const _BADGE_COLORS = {
+  NEO:'#6fb4ff', PLANET:'#e8cda0', MOON:'#c0c6d8',
+  DWARF:'#c4ceb6', COMET:'#8cd6e0', MODEL:'#d0a0ff',
+};
+const SEARCH_INDEX = (function(){
+  const idx=[];
+  NEOS.forEach((n,i)=>idx.push({ name:n.name, sub:n.desig, kind:'NEO',
+    onPick(){ state.selectedId=n.id; renderSelected(); _focusFromSearch({type:'neo',idx:i}); } }));
+  PLANETS.forEach((p,i)=>idx.push({ name:p.name, sub:'Planet', kind:'PLANET',
+    onPick(){ _focusFromSearch({type:'planet',idx:i}); } }));
+  MOONS.forEach(m=>idx.push({ name:m.name, sub:'Moon of '+_cap(m.parent), kind:'MOON',
+    onPick(){ _focusFromSearch({type:'moon',id:m.id}); } }));
+  DWARF_PLANETS.forEach((d,i)=>idx.push({ name:d.name, sub:'Dwarf Planet', kind:'DWARF',
+    onPick(){ _focusFromSearch({type:'dwarf',idx:i}); } }));
+  COMETS.forEach((c,i)=>idx.push({ name:c.name, sub:'Comet', kind:'COMET',
+    onPick(){ _focusFromSearch({type:'comet',idx:i}); } }));
+  idx.push({ name:'Vesta', sub:'Asteroid (shape model)', kind:'MODEL',
+    onPick(){ _focusMPCByName(['vesta','4']); } });
+  // Dedup by lowercased name — earlier wins, so Toutatis stays a NEO and Ceres
+  // a dwarf (never a duplicate MODEL/DWARF row).
+  const seen=new Set(), out=[];
+  for(const e of idx){ const k=e.name.toLowerCase(); if(seen.has(k))continue; seen.add(k); out.push(e); }
+  return out;
+})();
+
 function renderList() {
   const q=state.search.toLowerCase().trim();
+  const listEl=document.getElementById('neo-list');
+  if (q) {
+    // ── Search mode — every body type, type badges, direct focus on click ──
+    const results=SEARCH_INDEX.filter(r=>
+      r.name.toLowerCase().includes(q)||(r.sub&&r.sub.toLowerCase().includes(q))
+    ).slice(0,80);
+    document.getElementById('result-count').textContent=`${results.length} result${results.length===1?'':'s'}`;
+    listEl.innerHTML=results.map(r=>{
+      const col=_BADGE_COLORS[r.kind]||'#aab4d2';
+      const badge=`<span style="font-family:var(--font-mono);font-size:8.5px;letter-spacing:0.12em;padding:2px 6px;border-radius:999px;border:1px solid ${col}55;color:${col};margin-left:7px;vertical-align:middle;">${r.kind}</span>`;
+      return `<div class="neo-item search-item" data-sidx="${SEARCH_INDEX.indexOf(r)}">
+        <div class="name">${r.name}${badge}</div>
+        <div class="desig">${r.sub||''}</div>
+      </div>`;
+    }).join('');
+    listEl.querySelectorAll('.search-item').forEach(el=>el.addEventListener('click',()=>{
+      const r=SEARCH_INDEX[+el.dataset.sidx]; if(r&&r.onPick)r.onPick();
+    }));
+    return;
+  }
+  // ── Browse mode — NEOs filtered by the risk chip (original behavior) ──
   const filtered=NEOS.filter(n=>{
     if(state.filter!=='all'&&n.risk!==state.filter)return false;
-    if(q&&!(n.name.toLowerCase().includes(q)||n.desig.toLowerCase().includes(q)))return false;
     return true;
   }).sort((a,b)=>a.nextLD-b.nextLD);
   document.getElementById('result-count').textContent=`${filtered.length} result${filtered.length===1?'':'s'}`;
-  document.getElementById('neo-list').innerHTML=filtered.map(n=>`
+  listEl.innerHTML=filtered.map(n=>`
     <div class="neo-item r-${n.risk}${state.selectedId===n.id?' selected':''}" data-id="${n.id}">
       <div class="name"><span class="risk-dot"></span>${n.name}</div>
       <div class="desig">${n.desig}</div>
       <div class="ld">${n.nextLD<1?n.nextLD.toFixed(2):n.nextLD.toFixed(1)}<small>LUNAR DIST</small></div>
     </div>`).join('');
-  document.querySelectorAll('.neo-item').forEach(el=>el.addEventListener('click',()=>{state.selectedId=el.dataset.id;renderList();renderSelected();}));
+  listEl.querySelectorAll('.neo-item').forEach(el=>el.addEventListener('click',()=>{state.selectedId=el.dataset.id;renderList();renderSelected();}));
 }
 function renderSelected() {
   const n=NEOS.find(x=>x.id===state.selectedId); if(!n)return;
@@ -1985,6 +2108,8 @@ function _focusTargetPos(t) {
   if (tg.type === 'planet') return orbitPos(PLANETS[tg.idx], t);
   if (tg.type === 'neo')    return orbitPos(NEOS[tg.idx], t);
   if (tg.type === 'moon')   return _moonWorldPos(tg.id, t);
+  if (tg.type === 'dwarf')  return orbitPos(DWARF_ELEMS[tg.idx], t);
+  if (tg.type === 'comet')  return orbitPos(COMET_ELEMS[tg.idx], t);
   return getMPCPosition(tg.ast, _SIM_EPOCH_JD + t);
 }
 
@@ -2044,21 +2169,56 @@ function _setFocusDollyTargets(radiusAU, kind) {
   // (Phobos/Deimos) at a sane framing — their r×8 would be sub-near-plane
   else if (kind === 'luna') _focusDistTarget = Math.max(radiusAU * 8, 0.00005);
   else if (kind === 'gas')  _focusDistTarget = radiusAU * 5;
-  else                      _focusDistTarget = 0.0006;
+  else                      _focusDistTarget = 0.0006;   // asteroids + rocky planets
   // Dolly floor: moons and asteroids may scroll in VERY close; the big
   // bodies keep the tighter surface-hugging floor.
-  _focusMinDist = kind === 'luna' ? Math.max(radiusAU * 1.2, 8e-6)
-                : kind            ? Math.max(rEff * 1.5, 3e-5)
-                :                   0.00003;
+  if (kind === 'luna') {
+    _focusMinDist = Math.max(radiusAU * 1.2, 8e-6);
+  } else if (kind === 'ast') {
+    // NEO/MPC: while focused the renderer freezes the PROMO_MIN_PX floor at
+    // FOCUS_FRAME_DIST (renderer3d.js), so the on-screen rock keeps an
+    // effective world radius the camera floor must clear — 1.2× it lands the
+    // dolly just above the surface with the rock filling the screen.
+    var promoR = PROMO_MIN_PX * (2 * FOCUS_FRAME_DIST * Math.tan(FOV_RAD / 2) / H);
+    var rEffAst = Math.max(radiusAU, promoR);
+    _focusMinDist = Math.max(rEffAst * 1.2, 0.00003);
+  } else if (kind) {
+    _focusMinDist = Math.max(rEff * 1.5, 3e-5);
+  } else {
+    _focusMinDist = 0.00003;
+  }
 }
 
 function _beginFocusGlide() {
   state.focusLerp = 0;
   _focusFollow = false;
   _exitAnim = null;
-  _focusStartCam = { tx: state.cam.tx, ty: state.cam.ty, tz: state.cam.tz, dist: state.cam.dist };
+  _focusStartCam = { tx: state.cam.tx, ty: state.cam.ty, tz: state.cam.tz, dist: state.cam.dist,
+                     theta: state.cam.theta, phi: state.cam.phi };
   _camVTheta = 0; _camVPhi = 0;
   _lastInteractT = performance.now();
+}
+
+// Camera azimuth/elevation for a cinematic SIDE view of a comet (reference-
+// photo framing): the offset dir is mostly PERPENDICULAR to the anti-solar
+// tail (so the tail sweeps across the frame), biased a little to the solar
+// side (so the lit face reads). Convention matches renderer3d _updateCamera:
+// offset = (cosφ·sinθ, cosφ·cosθ, sinφ).
+function _cometViewOrient(pos) {
+  var L = Math.hypot(pos.x, pos.y, pos.z || 0) || 1e-9;
+  var ax = pos.x / L, ay = pos.y / L, az = (pos.z || 0) / L;   // anti-solar unit
+  // A stable perpendicular = anti × up
+  var ux = 0, uy = 0, uz = 1;
+  if (Math.abs(az) > 0.9) { uy = 1; uz = 0; }
+  var px = ay*uz - az*uy, py = az*ux - ax*uz, pz = ax*uy - ay*ux;
+  var pl = Math.hypot(px, py, pz) || 1e-9; px/=pl; py/=pl; pz/=pl;
+  // camera offset dir: 90% perpendicular (side) − 35% anti-solar (solar bias)
+  var dx = px*0.9 - ax*0.35, dy = py*0.9 - ay*0.35, dz = pz*0.9 - az*0.35;
+  var dl = Math.hypot(dx, dy, dz) || 1e-9; dx/=dl; dy/=dl; dz/=dl;
+  return {
+    theta: Math.atan2(dx, dy),
+    phi: Math.max(-1.48, Math.min(1.48, Math.atan2(dz, Math.hypot(dx, dy)))),
+  };
 }
 
 // Shared focus-target setup: fills target.a/name/desig, derives the physical
@@ -2082,18 +2242,48 @@ function _applyFocusTarget(target) {
     target.desig = 'MOON OF ' + md.parent.toUpperCase() + ' · P = ' + Math.abs(md.T).toFixed(2) + ' D';
     radiusAU = md.r;
     focusKind = 'luna';
+  } else if (target.type === 'dwarf') {
+    var dw = DWARF_PLANETS[target.idx];
+    target.a = dw.a; target.name = dw.name;
+    target.desig = 'DWARF PLANET · a = ' + dw.a.toFixed(3) + ' AU';
+    radiusAU = dw.r;
+    focusKind = 'luna';                        // r×8 framing — same as big moons
+  } else if (target.type === 'comet') {
+    var cm = COMETS[target.idx];
+    target.a = cm.a; target.name = cm.name;
+    target.desig = 'COMET · P = ' + Math.pow(cm.a, 1.5).toFixed(1) + ' YR · q = ' + (cm.a * (1 - cm.e)).toFixed(2) + ' AU';
+    radiusAU = cm.r;
+    focusKind = 'luna';                        // tiny-body floor keeps sane framing
   } else if (target.type === 'neo') {
     var n = NEOS[target.idx];
     target.a = n.a; target.name = n.name; target.desig = n.desig;
     radiusAU = 1.7e-9;                         // catalog NEOs carry no H — ~500 m body
+    focusKind = 'ast';
   } else {
     var ast = target.ast;
     target.a = ast.a; target.name = ast.name || ast.designation; target.desig = ast.designation;
     radiusAU = _astRadiusAU(ast);
+    focusKind = 'ast';
   }
   state.focusTarget = target;
 
   _setFocusDollyTargets(radiusAU, focusKind);
+
+  // Comet focus: pull the camera BACK to frame the whole head + tail (the
+  // default r×8 luna framing dives onto the nucleus, so only a slice of the
+  // tail is ever on screen), and orient to a cinematic side view. Distance
+  // scales with the tail length (∝ activity). Null orient for every other body.
+  state._focusOrientTarget = null;
+  if (target.type === 'comet') {
+    var cp = _focusTargetPos(state.simTime);
+    var ds = Math.hypot(cp.x, cp.y, cp.z || 0);
+    var actE = Math.max(0, (COMET_ACTIVE_AU - ds) / COMET_ACTIVE_AU);
+    var tailLen = actE * 1.5;                         // ion tail length (AU)
+    _focusDistTarget = Math.max(0.05, tailLen * 0.9); // frame head + full tail
+    _focusMinDist = 0.004;                            // still allow a closer look
+    state._focusOrientTarget = _cometViewOrient(cp);
+  }
+
   _beginFocusGlide();
   _syncAsteroidMesh();                         // NEO/MPC: 3D mesh in the MAIN scene
   _refreshReprNotice();
@@ -2111,6 +2301,7 @@ function enterFocus(target) {
   _container.classList.add('focus-active');
   document.getElementById('tooltip').classList.remove('show');
   state.hoverId = null; state.hoverPlanet = null; _hoverMPC = null; state.hoverMoon = null;
+  state.hoverDwarf = null; state.hoverComet = null;
 }
 
 // Focus → focus swap (single click/tap on another object while focused):
@@ -2159,6 +2350,19 @@ function _focusHitTest(mx, my) {
       if (Math.hypot(mx - msp.x, my - msp.y) < msp.r + 8) {
         return { type: 'moon', id: MOONS[mi2].id };
       }
+    }
+  }
+  // Dwarf planets + comets (visible independent of the planet toggle)
+  for (var di2 = 0; di2 < DWARF_PLANETS.length; di2++) {
+    var dsp = _renderer.getDwarfScreenPos(di2);
+    if (dsp && Math.hypot(mx - dsp.x, my - dsp.y) < dsp.r + 8) {
+      return { type: 'dwarf', idx: di2 };
+    }
+  }
+  for (var ci2 = 0; ci2 < COMETS.length; ci2++) {
+    var csp = _renderer.getCometScreenPos(ci2);
+    if (csp && Math.hypot(mx - csp.x, my - csp.y) < csp.r + 8) {
+      return { type: 'comet', idx: ci2 };
     }
   }
   if (state.showMPC && _mpcLoaded) {
@@ -2288,6 +2492,10 @@ function _handleDoubleActivate(mx, my) {
     if (idx >= 0) enterFocus({ type: 'neo', idx });
   } else if (state.hoverMoon) {
     enterFocus({ type: 'moon', id: state.hoverMoon });
+  } else if (state.hoverDwarf != null) {
+    enterFocus({ type: 'dwarf', idx: state.hoverDwarf });
+  } else if (state.hoverComet != null) {
+    enterFocus({ type: 'comet', idx: state.hoverComet });
   } else if (state.hoverPlanet) {
     const idx = PLANETS.findIndex(p => p.key === state.hoverPlanet);
     if (idx >= 0) enterFocus({ type: 'planet', idx });
@@ -2365,6 +2573,19 @@ cv.addEventListener('mousemove',e=>{
       if(Math.hypot(x-msp.x,y-msp.y)<msp.r+8){moonHit=MOONS[mi];break;}
     }
   }
+  // Dwarf planets + comets — after moons, before the MPC cloud
+  state.hoverDwarf=null; state.hoverComet=null;
+  let dwarfHit=-1, cometHit=-1;
+  if(!best && !bestPlanet && !moonHit){
+    for(let di=0;di<DWARF_PLANETS.length;di++){
+      const s=_renderer.getDwarfScreenPos(di);
+      if(s&&Math.hypot(x-s.x,y-s.y)<s.r+8){dwarfHit=di;break;}
+    }
+    if(dwarfHit<0)for(let ci=0;ci<COMETS.length;ci++){
+      const s=_renderer.getCometScreenPos(ci);
+      if(s&&Math.hypot(x-s.x,y-s.y)<s.r+8){cometHit=ci;break;}
+    }
+  }
   const tt=document.getElementById('tooltip');
   if(best){
     state.hoverId=best.id; state.hoverPlanet=null; _hoverMPC=null;
@@ -2396,6 +2617,28 @@ cv.addEventListener('mousemove',e=>{
     document.getElementById('tt-desig').textContent='MOON OF '+moonHit.parent.toUpperCase()+' · P = '+Math.abs(moonHit.T).toFixed(2)+' D';
     document.getElementById('tt-d').textContent=Math.round(dAUm*1.496e8).toLocaleString('en-US')+' km · '+(dAUm/0.00257).toFixed(2)+' LD';
     document.getElementById('tt-v').textContent=_moonOrbSpeedKms(moonHit).toFixed(2)+' km/s';
+    cv.style.cursor='pointer';
+  } else if(dwarfHit>=0){
+    state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null; state.hoverDwarf=dwarfHit;
+    const dd=DWARF_PLANETS[dwarfHit];
+    const dp=orbitPos(DWARF_ELEMS[dwarfHit],state.simTime);
+    const rAUd=Math.hypot(dp.x,dp.y,dp.z||0);
+    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
+    document.getElementById('tt-name').textContent=dd.name;
+    document.getElementById('tt-desig').textContent='DWARF PLANET · T = '+Math.pow(dd.a,1.5).toFixed(1)+' yr';
+    document.getElementById('tt-d').textContent=rAUd.toFixed(3)+' AU';
+    document.getElementById('tt-v').textContent=visVivaKms(dd.a,rAUd)+' km/s';
+    cv.style.cursor='pointer';
+  } else if(cometHit>=0){
+    state.hoverId=null; state.hoverPlanet=null; _hoverMPC=null; state.hoverComet=cometHit;
+    const cc=COMETS[cometHit];
+    const cp=orbitPos(COMET_ELEMS[cometHit],state.simTime);
+    const rAUc=Math.hypot(cp.x,cp.y,cp.z||0);
+    tt.style.left=x+'px';tt.style.top=y+'px';tt.classList.add('show');
+    document.getElementById('tt-name').textContent=cc.name;
+    document.getElementById('tt-desig').textContent='COMET · T = '+Math.pow(cc.a,1.5).toFixed(1)+' yr · q = '+(cc.a*(1-cc.e)).toFixed(2)+' AU';
+    document.getElementById('tt-d').textContent=rAUc.toFixed(3)+' AU';
+    document.getElementById('tt-v').textContent=visVivaKms(cc.a,rAUc)+' km/s';
     cv.style.cursor='pointer';
   } else if(state.showMPC && _mpcLoaded) {
     // ── MPC asteroid hover via O(1) spatial hash ──────────────────────────
@@ -2431,10 +2674,15 @@ cv.addEventListener('mousemove',e=>{
 cv.addEventListener('mouseleave',()=>{
   _dragMode=null; _dragArmed=null;
   state.hoverId=null; state.hoverPlanet=null; state.hoverMoon=null;
+  state.hoverDwarf=null; state.hoverComet=null;
   document.getElementById('tooltip').classList.remove('show');
   cv.style.cursor='grab';
 });
 cv.addEventListener('click',e=>{
+  // A click that travelled more than 5px from the mousedown was a camera
+  // drag, not a selection — the browser still fires click on drag-release.
+  // (mouseup only resets the drag state; selection is processed here.)
+  if(Math.hypot(e.clientX-_panSX,e.clientY-_panSY)>5) return;
   if(state.focusTarget){
     // Focus mode: a single click on any OTHER object swaps the focus to it —
     // the camera dollies straight there, no exit round-trip. Empty space or
@@ -2496,6 +2744,8 @@ document.addEventListener('keydown',e=>{
   if((e.key==='f'||e.key==='F')&&!state.focusTarget){
     if(state.hoverId){const idx=NEOS.findIndex(n=>n.id===state.hoverId);if(idx>=0)enterFocus({type:'neo',idx});}
     else if(state.hoverMoon){enterFocus({type:'moon',id:state.hoverMoon});}
+    else if(state.hoverDwarf!=null){enterFocus({type:'dwarf',idx:state.hoverDwarf});}
+    else if(state.hoverComet!=null){enterFocus({type:'comet',idx:state.hoverComet});}
     else if(state.hoverPlanet){const idx=PLANETS.findIndex(p=>p.key===state.hoverPlanet);if(idx>=0)enterFocus({type:'planet',idx});}
     else if(_hoverMPC){enterFocus({type:'mpc',ast:_hoverMPC.ast});}
     return;
@@ -2696,8 +2946,21 @@ function _mobileTap(x, y) {
       if (Math.hypot(x - msp.x, y - msp.y) < msp.r + 12) { moonTap = MOONS[mi]; break; }
     }
   }
+  // Dwarf planets + comets — touch-sized radius
+  var dwarfTap = -1, cometTap = -1;
+  if (!best && !bestPlanet && !moonTap) {
+    for (var dti = 0; dti < DWARF_PLANETS.length; dti++) {
+      var dts = _renderer.getDwarfScreenPos(dti);
+      if (dts && Math.hypot(x - dts.x, y - dts.y) < dts.r + 12) { dwarfTap = dti; break; }
+    }
+    if (dwarfTap < 0) for (var cti = 0; cti < COMETS.length; cti++) {
+      var cts = _renderer.getCometScreenPos(cti);
+      if (cts && Math.hypot(x - cts.x, y - cts.y) < cts.r + 12) { cometTap = cti; break; }
+    }
+  }
 
   state.hoverId = null; state.hoverPlanet = null; state.hoverMoon = null; _hoverMPC = null;
+  state.hoverDwarf = null; state.hoverComet = null;
   var hit = true;
   if (best) {
     state.hoverId = best.id;
@@ -2722,6 +2985,24 @@ function _mobileTap(x, y) {
     document.getElementById('tt-desig').textContent = 'MOON OF ' + moonTap.parent.toUpperCase() + ' · P = ' + Math.abs(moonTap.T).toFixed(2) + ' D';
     document.getElementById('tt-d').textContent = Math.round(dAUt * 1.496e8).toLocaleString('en-US') + ' km · ' + (dAUt / 0.00257).toFixed(2) + ' LD';
     document.getElementById('tt-v').textContent = _moonOrbSpeedKms(moonTap).toFixed(2) + ' km/s';
+  } else if (dwarfTap >= 0) {
+    state.hoverDwarf = dwarfTap;
+    var ddT = DWARF_PLANETS[dwarfTap];
+    var dpT = orbitPos(DWARF_ELEMS[dwarfTap], t);
+    var rT = Math.hypot(dpT.x, dpT.y, dpT.z || 0);
+    document.getElementById('tt-name').textContent = ddT.name;
+    document.getElementById('tt-desig').textContent = 'DWARF PLANET · T = ' + Math.pow(ddT.a, 1.5).toFixed(1) + ' yr';
+    document.getElementById('tt-d').textContent = rT.toFixed(3) + ' AU';
+    document.getElementById('tt-v').textContent = visVivaKms(ddT.a, rT) + ' km/s';
+  } else if (cometTap >= 0) {
+    state.hoverComet = cometTap;
+    var ccT = COMETS[cometTap];
+    var cpT = orbitPos(COMET_ELEMS[cometTap], t);
+    var rT2 = Math.hypot(cpT.x, cpT.y, cpT.z || 0);
+    document.getElementById('tt-name').textContent = ccT.name;
+    document.getElementById('tt-desig').textContent = 'COMET · T = ' + Math.pow(ccT.a, 1.5).toFixed(1) + ' yr';
+    document.getElementById('tt-d').textContent = rT2.toFixed(3) + ' AU';
+    document.getElementById('tt-v').textContent = visVivaKms(ccT.a, rT2) + ' km/s';
   } else {
     var mHit = state.showMPC && _mpcLoaded ? _mpcHit(x, y) : null;
     if (mHit) {

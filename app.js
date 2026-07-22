@@ -14,8 +14,12 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc:  ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
       styleSrc:   ["'self'", "'unsafe-inline'"],
-      mediaSrc:   ["'self'"],                   
-      imgSrc:     ["'self'", "data:"],
+      mediaSrc:   ["'self'"],
+      // blob: — three.js GLTFLoader unpacks GLB-embedded textures into blob
+      // URLs and reads them via fetch/createImageBitmap; without it every
+      // NASA shape model silently falls back to the procedural mesh.
+      connectSrc: ["'self'", "blob:"],
+      imgSrc:     ["'self'", "data:", "blob:"],
     }
   }
 }));

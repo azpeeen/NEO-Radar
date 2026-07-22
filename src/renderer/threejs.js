@@ -35,6 +35,19 @@ var RISK_COLOR = {
   hazard:  '#ff3b50',
 };
 
+// Per-planet overlay label colors — each tinted to the body, brighter than the
+// old flat gray so the names read at a glance in the radar view.
+var PLANET_LABEL_COLOR = {
+  mercury: 'rgba(180, 170, 160, 0.90)',  // gray-beige
+  venus:   'rgba(230, 200, 140, 0.90)',  // gold
+  earth:   'rgba(100, 180, 255, 0.90)',  // blue
+  mars:    'rgba(220, 100,  60, 0.90)',  // red-orange
+  jupiter: 'rgba(210, 170, 120, 0.90)',  // orange-beige
+  saturn:  'rgba(210, 190, 130, 0.90)',  // pale gold
+  uranus:  'rgba(130, 210, 210, 0.90)',  // light cyan
+  neptune: 'rgba( 80, 120, 220, 0.90)',  // deep blue
+};
+
 // Orbit-line colors + opacities carried over from the Canvas 2D drawNEO()
 var ORBIT_STYLE = {
   hazard:  { color: '#ff6b2b', base: 0.35, sel: 0.70 },
@@ -69,6 +82,20 @@ var MIN_PX = {
 
 // Focused/promoted asteroid mesh floor — deliberately large (focus close-up)
 var PROMO_MIN_PX = 60;
+
+// Focus-entry framing distance for asteroids (AU) — matches the asteroid
+// _focusDistTarget in radar.ejs. While focused, the promo min-px floor is
+// frozen at this distance so dollying closer actually grows the rock on
+// screen instead of the floor re-shrinking it to a constant 60 px.
+var FOCUS_FRAME_DIST = 6e-4;
+
+// Same idea for focused moons / dwarf planets / comets: the 'luna' focus
+// framing bottoms out at 5e-5 AU (radar.ejs _setFocusDollyTargets), and a
+// km-scale body (Phobos, 67P) at that range is a sub-pixel dot without a
+// floor. 48 px, frozen at the framing distance — big bodies (Moon, Ceres)
+// beat it at real size, tiny ones read as actual rocks.
+var FOCUS_BODY_MIN_PX = 48;
+var FOCUS_BODY_FRAME_DIST = 5e-5;
 
 var FOV_DEG = 45;
 
@@ -127,6 +154,69 @@ var MOON_FALLBACK = {
   io: 0xd4a843, europa: 0xc8b89a, ganymede: 0x808080, callisto: 0x808080,
   titan: 0xd4823c,
 };
+
+// ── Dwarf planets — real Kepler elements (J2000, deg / AU / days) ─────────────
+// body = slug prefix for the manifest model lookup (category dwarf_planets).
+// Shared with the page (classic-script global): radar.ejs converts these to
+// orbitPos()-style elements and solves positions — this file never does.
+var DWARF_PLANETS = [
+  {
+    id: 'ceres', name: 'Ceres', body: 'ceres',
+    a: 2.7691, e: 0.0785, i: 10.593, node: 80.329, w: 73.115,
+    M: 352.1, T: 1681.63,
+    r: 3.16e-6,            // 473 km / 1.496e8
+    color: 0x888880, minPx: 3,
+  },
+  {
+    id: 'pluto', name: 'Pluto', body: 'pluto',
+    a: 39.482, e: 0.2488, i: 17.14, node: 110.3, w: 113.8,
+    M: 14.53, T: 90560.0,
+    r: 7.94e-6,            // 1188 km / 1.496e8
+    color: 0xc8b89a, minPx: 3,
+  },
+];
+
+// ── Comets — JPL Kepler elements, each at its OWN epoch_jd ───────────────────
+// The page (radar.ejs _elemsFromEpoch) propagates M from epoch_jd to the sim
+// epoch, so Halley (epoch 2061, near perihelion) correctly sits near aphelion
+// in 2026. body = manifest slug prefix; tail_color tints the dust tail (the
+// ion tail is a fixed blue-white). Physical radii are REAL (AU) — the prompt's
+// r were the km/1e6 inflation again (Halley 5.5e-6 AU ≈ 823 km), kept fixed.
+var COMETS = [
+  {
+    id: 'halley', name: '1P/Halley', short: '1P/Halley', body: 'halley',
+    epoch_jd: 2474040.5,                     // 4 Aug 2061, perihelion 28 Jul 2061
+    a: 17.737, e: 0.96658, i: 161.96, node: 59.396, w: 112.05, M: 0.07323,
+    T: 27255.0, r: 3.68e-8, color: 0x8899aa, tail_color: 0xaabbff, minPx: 2.5, // ~5.5 km
+  },
+  {
+    id: 'churyumov', name: '67P/Churyumov-Gerasimenko', short: '67P/C-G',
+    body: 'churyumov-gerasimenko', epoch_jd: 2451545.0,
+    a: 3.463, e: 0.6411, i: 7.04, node: 50.147, w: 12.783, M: 342.0,
+    T: 2354.0, r: 1.34e-8, color: 0x777766, tail_color: 0xffeeaa, minPx: 2.5, // ~2.0 km
+  },
+  {
+    id: 'hartley2', name: '103P/Hartley 2', short: '103P/Hartley',
+    body: 'hartley_2', epoch_jd: 2451545.0,
+    a: 3.475, e: 0.6943, i: 13.61, node: 219.76, w: 181.0, M: 30.0,
+    T: 2365.0, r: 3.9e-9, color: 0x666655, tail_color: 0xffffcc, minPx: 2.5,  // ~0.58 km
+  },
+  {
+    id: 'tempel1', name: '9P/Tempel 1', short: '9P/Tempel',
+    body: 'tempel_1', epoch_jd: 2451545.0,
+    a: 3.123, e: 0.5175, i: 10.47, node: 68.94, w: 178.9, M: 346.0,
+    T: 2016.0, r: 2.0e-8, color: 0x665544, tail_color: 0xffddaa, minPx: 2.5,  // ~3.0 km
+  },
+  {
+    id: 'wild2', name: '81P/Wild 2', short: '81P/Wild',
+    body: 'wild_2', epoch_jd: 2451545.0,
+    a: 3.451, e: 0.5362, i: 3.24, node: 136.07, w: 47.0, M: 87.0,
+    T: 2348.0, r: 1.37e-8, color: 0x554433, tail_color: 0xffcc88, minPx: 2.5, // ~2.05 km
+  },
+];
+
+// Coma/tails become visible inside this heliocentric distance (AU)
+var COMET_ACTIVE_AU = 2.5;
 
 // Local circular-orbit offset from the parent at simTime (days from the sim
 // epoch JD 2461188.0 = J2000 + 9643 d — same phase convention the page's old
@@ -219,20 +309,38 @@ function _makeSimplex3D(rand) {
 
 /* ── Procedural asteroid mesh — deterministic per designation ────────────── */
 
+// 4 shape archetypes picked by seed%4 — matches the rock-texture set choice
+// (stretch = per-axis elongation applied after the noise displacement)
+var NEO_SHAPE_ARCHETYPES = [
+  { stretch: [1.0, 1.0, 1.0] },   // 0 near-spherical rubble pile — Bennu-like
+  { stretch: [1.6, 1.0, 1.0] },   // 1 elongated along X — Eros-like
+  { stretch: [1.0, 1.0, 0.7] },   // 2 flattened along Z — Apophis-like
+  { stretch: [1.0, 1.0, 1.0], asym: true }, // 3 irregular: rougher +X hemisphere
+];
+
 function generateAsteroidGeometry(seed, detail) {
   var rand    = _mulberry32(seed);
   var noise3D = _makeSimplex3D(rand);
-  var geo     = new THREE.IcosahedronGeometry(1, detail == null ? 2 : detail);
+  var geo     = new THREE.IcosahedronGeometry(1, detail == null ? 3 : detail);
   var pos     = geo.attributes.position;
   var v       = new THREE.Vector3();
   var FREQ    = 1.7;
+  var arche   = NEO_SHAPE_ARCHETYPES[(seed >>> 0) % NEO_SHAPE_ARCHETYPES.length];
+  var st      = arche.stretch;
   // Non-indexed geometry: duplicated verts share the same position, and the
   // displacement is a pure function of position — so seams stay watertight.
   for (var i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i).normalize();
-    var n = noise3D(v.x * FREQ, v.y * FREQ, v.z * FREQ);
-    var r = 1 + (n * 0.35 + 0.1);
-    pos.setXYZ(i, v.x * r, v.y * r, v.z * r);
+    // 3 noise octaves — large lobes, medium lumps, fine surface detail
+    var n = 0.30 * noise3D(v.x * FREQ, v.y * FREQ, v.z * FREQ)
+          + 0.12 * noise3D(v.x * FREQ * 2.3, v.y * FREQ * 2.3, v.z * FREQ * 2.3)
+          + 0.04 * noise3D(v.x * FREQ * 5.1, v.y * FREQ * 5.1, v.z * FREQ * 5.1);
+    // Asymmetric archetype: one hemisphere gets an extra aggressive octave
+    if (arche.asym && v.x > 0) {
+      n += v.x * 0.18 * noise3D(v.x * FREQ * 3.1 + 7.7, v.y * FREQ * 3.1 + 7.7, v.z * FREQ * 3.1 + 7.7);
+    }
+    var r = 1 + n;
+    pos.setXYZ(i, v.x * r * st[0], v.y * r * st[1], v.z * r * st[2]);
   }
   geo.computeVertexNormals();
   return geo;
@@ -249,7 +357,16 @@ var MODEL_MAP = {
   '433':    'eros',      // Eros
   '25143':  'itokawa',   // Itokawa
   '162173': 'ryugu',     // Ryugu
-  '4179':   'toutatis',  // Toutatis
+  '65803':  'didymos',   // Didymos
+  '4179':   'toutatis_radar-based_hi-res',  // Toutatis (manifest import)
+  // Manifest-imported shape models (scripts/convertAndImport.js — slugs ARE
+  // the .glb basenames in /assets/models/)
+  '1862':   'apollo_model_1',              // Apollo
+  '1036':   'ganymed_model_1',             // Ganymed
+  '4769':   'castalia_radar-based',        // Castalia
+  '6489':   'golevka_radar-based',         // Golevka
+  '1620':   'geographos_radar-based_mid-res', // Geographos
+  '2100':   'ra-shalom_radar-based',       // Ra-Shalom
 };
 
 // #repr-notice text when a real NASA shape model is on screen
@@ -259,8 +376,12 @@ var MODEL_NOTICE = {
   eros:     'NASA SHAPE MODEL · NEAR SHOEMAKER DATA · 2000',
   itokawa:  'NASA SHAPE MODEL · HAYABUSA DATA · 2005',
   ryugu:    'NASA SHAPE MODEL · HAYABUSA2 DATA · 2018',
+  didymos:  'NASA SHAPE MODEL · DART / RADAR DATA · 2022',
   toutatis: 'NASA SHAPE MODEL · RADAR OBSERVATION DATA',
 };
+
+// Fallback notice for manifest models without a curated credit line
+var MODEL_NOTICE_DEFAULT = 'SHAPE MODEL · RADAR / LIGHTCURVE INVERSION DATA';
 
 function _modelKeyFor(designation, name) {
   var d = String(designation || '').trim();
@@ -428,6 +549,227 @@ function generateRockTexture(seed, resolution) {
   return { albedoTexture: albedoTexture, normalTexture: normalTexture, roughnessTexture: roughnessTexture };
 }
 
+/* ── Comet particle tails (dust + ion) ───────────────────────────────────── */
+// One instance per comet, two pooled THREE.Points systems living in the MAIN
+// scene (so the tail renders in focus mode too). Particle state is kept
+// CPU-side; the position/color buffers are rewritten each active frame.
+//
+// Where this diverges from a naive reading of the brief, and why:
+//  • PointsMaterial can't size points per-particle (that needs a ShaderMaterial,
+//    which would also have to re-implement logarithmicDepthBuffer — the scene
+//    uses it). So point size is the fixed material size, and each particle's
+//    FADE is premultiplied into its RGB: additive blending draws RGB→0 as
+//    nothing, which is exactly the per-particle "alpha" the brief asks for.
+//  • sizeAttenuation is FALSE (constant px), not true. With attenuation, a
+//    point sprite at AU-scale focus distance (~5e-5 AU) balloons to fill the
+//    whole screen in an opaque wash — the same reason the 41k MPC cloud uses
+//    sizeAttenuation:false. Constant-px dots keep the tail crisp at every zoom.
+//  • simDt is a frame-pace factor (~1 at 60 fps), NOT simulation days. The
+//    emission counts, velocities and the fixed pool are all per-frame; scaling
+//    them by sim-days would drain the pool and explode the tail whenever the
+//    clock is fast-forwarded.
+//  • The dust tail's curve is emergent: particles are emitted at the comet's
+//    CURRENT position every frame, so as the comet moves along its orbit the
+//    trail of older (world-fixed) dust bends on its own — no per-particle
+//    force-curl needed (the radial accel is colinear with anti-solar anyway).
+
+var COMET_N_DUST = 800;
+var COMET_N_ION  = 500;
+
+class CometTail {
+  constructor(scene, glowTex /*, tailColor (unused — spec fixes the palettes) */) {
+    this._scene = scene;
+    // Palette tuned to the reference photo: a brilliant WHITE head fading
+    // through blue to a blue-violet tail tip (not the physical yellow-dust /
+    // blue-ion split — the user's reference art wins here). Linear space.
+    this._dustHot  = new THREE.Color(0xffffff).convertSRGBToLinear();   // white head core
+    this._dustCold = new THREE.Color(0x88aaff).convertSRGBToLinear();   // → blue
+    this._ionHot   = new THREE.Color(0xcce4ff).convertSRGBToLinear();   // pale blue
+    this._ionCold  = new THREE.Color(0x7766cc).convertSRGBToLinear();   // → blue-violet tip
+    this._smoothActivity = 0;
+    this._anti = new THREE.Vector3();
+    // Dust curve state: the tail bends toward the comet's TRAILING direction
+    // (−velocity), derived from the last position each frame.
+    this._prevComet = new THREE.Vector3();
+    this._vel = new THREE.Vector3();
+    this._curve = new THREE.Vector3();
+    this._hasPrev = false;
+    this.dust = this._makeSystem(COMET_N_DUST, 4, glowTex);
+    this.ion  = this._makeSystem(COMET_N_ION,  3, glowTex);
+    scene.add(this.dust.points);
+    scene.add(this.ion.points);
+  }
+
+  _makeSystem(n, size, glowTex) {
+    var positions = new Float32Array(n * 3);
+    var colors    = new Float32Array(n * 3);
+    var sizes     = new Float32Array(n);          // kept per brief (PointsMaterial ignores it)
+    var geo = new THREE.BufferGeometry();
+    var pa = new THREE.BufferAttribute(positions, 3); pa.setUsage(THREE.DynamicDrawUsage);
+    var ca = new THREE.BufferAttribute(colors, 3);    ca.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', pa);
+    geo.setAttribute('color', ca);
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    var mat = new THREE.PointsMaterial({
+      size: size, sizeAttenuation: false, vertexColors: true,
+      map: glowTex, transparent: true, opacity: 1.0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      // depthTest off: additive glow particles should never be occluded, and
+      // it sidesteps a logarithmicDepthBuffer depth-fight that dropped the tail
+      // at the close focus-mode camera distance.
+      depthTest: false,
+    });
+    var points = new THREE.Points(geo, mat);
+    points.frustumCulled = false;
+    points.renderOrder = 2;               // draw after the opaque nucleus/scene
+    points.visible = false;
+    var parts = new Array(n);
+    for (var i = 0; i < n; i++) {
+      parts[i] = { x:0,y:0,z:0, vx:0,vy:0,vz:0, ox:0,oy:0,oz:0, life:0, maxLife:0, alive:false };
+    }
+    return { geo:geo, mat:mat, points:points, parts:parts,
+             positions:positions, colors:colors, n:n, cursor:0, alive:0 };
+  }
+
+  activity() { return this._smoothActivity; }
+
+  update(cometPos, sunPos, distSol, simDt, focusBoost) {
+    var dt = simDt || 1.0;
+    // Bigger constant-px particles while this comet is the focus target — up
+    // close the map-sized dots are invisible. (sizeAttenuation is off, so this
+    // is a straight pixel size, not a distance balloon.)
+    this.dust.mat.size = focusBoost ? 24 : 4;
+    this.ion.mat.size  = focusBoost ? 12 : 3;
+    // anti-solar unit vector (Sun at origin → normalize(cometPos))
+    this._anti.copy(cometPos).sub(sunPos);
+    var d = this._anti.length() || 1e-9;
+    this._anti.multiplyScalar(1 / d);
+
+    // Curve direction = comet's trailing side (−velocity). BOTH tails point
+    // anti-solar; the dust just bends this way, the ion stays straight.
+    this._vel.copy(cometPos).sub(this._prevComet);
+    var vl = this._vel.length();
+    if (this._hasPrev && vl > 1e-12) this._curve.copy(this._vel).multiplyScalar(-1 / vl);
+    else this._curve.set(0, 0, 0);
+    this._prevComet.copy(cometPos);
+    this._hasPrev = true;
+
+    var activity = Math.max(0, (COMET_ACTIVE_AU - distSol) / COMET_ACTIVE_AU);
+    // Exponential smoothing → the tail grows/shrinks over seconds, not instantly
+    this._smoothActivity = this._smoothActivity * 0.98 + activity * 0.02;
+    var act = this._smoothActivity;
+
+    // Fully idle: hide the Points and don't iterate the pools (Part 7)
+    if (act < 0.005 && this.dust.alive === 0 && this.ion.alive === 0) {
+      this.dust.points.visible = false;
+      this.ion.points.visible = false;
+      return;
+    }
+
+    var emit = Math.floor(act * (focusBoost ? 30 : 12));    // 0–30 new per frame
+    if (emit > 0) {
+      this._emit(this.dust, emit, cometPos, 'dust', act);
+      this._emit(this.ion,  emit, cometPos, 'ion',  act);
+    }
+    this._simDust(this.dust, dt, cometPos, act);
+    this._simIon(this.ion, dt, cometPos, act);
+
+    this.dust.points.visible = this.dust.alive > 0;
+    this.ion.points.visible  = this.ion.alive > 0;
+  }
+
+  _emit(sys, count, cometPos, kind, act) {
+    for (var e = 0; e < count; e++) {
+      var p = sys.parts[sys.cursor];
+      if (!p.alive) sys.alive++;                 // recycling the oldest live slot is fine
+      sys.cursor = (sys.cursor + 1) % sys.n;
+      p.alive = true; p.life = 0;
+      // Emission origin: a tight random sphere around the nucleus. Kept well
+      // inside the comet focus-framing distance (~5e-5 AU) so the camera never
+      // sits inside the emission cloud.
+      var er = 8e-6;
+      p.x = cometPos.x + (Math.random()*2-1)*er;
+      p.y = cometPos.y + (Math.random()*2-1)*er;
+      p.z = cometPos.z + (Math.random()*2-1)*er;
+      // Both tails are analytic (anchored to the comet, oriented anti-solar);
+      // store a tiny per-particle offset so each tail keeps some width. Dust
+      // lives longer than ion.
+      p.maxLife = (kind === 'dust') ? (180 + Math.random()*120)   // 3–5 s @60fps
+                                    : ( 80 + Math.random()* 60);
+      var sp = (kind === 'dust') ? 0.00004 : 0.00002;
+      p.ox = (Math.random()*2-1)*sp;
+      p.oy = (Math.random()*2-1)*sp;
+      p.oz = (Math.random()*2-1)*sp;
+    }
+  }
+
+  // Dust: analytic, anchored to the comet like the ion tail so BOTH point
+  // anti-solar — but shorter, and bent toward the trailing side (this._curve)
+  // so it reads as the classic gently-curved dust tail. (The old world-space
+  // free-integration turned into an ORBITAL trail once the sim clock advanced
+  // — the comet jumps far per frame — so it diverged ~90° from anti-solar.)
+  _simDust(sys, dt, cometPos, act) {
+    var dustLength = act * 0.6;                 // shorter than the ion's 1.5 AU
+    var ax = this._anti.x, ay = this._anti.y, az = this._anti.z;
+    var cx = this._curve.x, cy = this._curve.y, cz = this._curve.z;
+    var pos = sys.positions, col = sys.colors, parts = sys.parts;
+    var hot = this._dustHot, cold = this._dustCold;
+    for (var i = 0; i < sys.n; i++) {
+      var p = parts[i], i3 = i*3;
+      if (!p.alive) { col[i3]=col[i3+1]=col[i3+2]=0; continue; }
+      p.life += dt;
+      if (p.life >= p.maxLife) { p.alive=false; sys.alive--; col[i3]=col[i3+1]=col[i3+2]=0; continue; }
+      var f = p.life/p.maxLife;
+      var reach = f * dustLength;
+      var bend = f * f * act * 0.35;             // quadratic → gentle curve
+      var fan = 1 + f*30;
+      pos[i3]   = cometPos.x + ax*reach + cx*bend + p.ox*fan;
+      pos[i3+1] = cometPos.y + ay*reach + cy*bend + p.oy*fan;
+      pos[i3+2] = cometPos.z + az*reach + cz*bend + p.oz*fan;
+      var a = Math.sin(Math.PI*f);
+      col[i3]   = (hot.r + (cold.r-hot.r)*f) * a;
+      col[i3+1] = (hot.g + (cold.g-hot.g)*f) * a;
+      col[i3+2] = (hot.b + (cold.b-hot.b)*f) * a;
+    }
+    sys.geo.attributes.position.needsUpdate = true;
+    sys.geo.attributes.color.needsUpdate = true;
+  }
+
+  // Ion: no inertia — position is analytic along the CURRENT anti-solar ray,
+  // so the tail is straight and anchored to the comet (plus a small fan).
+  _simIon(sys, dt, cometPos, act) {
+    var ionLength = act * 1.5;      // AU
+    var pos = sys.positions, col = sys.colors, parts = sys.parts;
+    var hot = this._ionHot, cold = this._ionCold;
+    var ax = this._anti.x, ay = this._anti.y, az = this._anti.z;
+    for (var i = 0; i < sys.n; i++) {
+      var p = parts[i], i3 = i*3;
+      if (!p.alive) { col[i3]=col[i3+1]=col[i3+2]=0; continue; }
+      p.life += dt;
+      if (p.life >= p.maxLife) { p.alive=false; sys.alive--; col[i3]=col[i3+1]=col[i3+2]=0; continue; }
+      var f = p.life/p.maxLife, reach = f * ionLength, fan = 1 + f*40;
+      pos[i3]   = cometPos.x + ax*reach + p.ox*fan;
+      pos[i3+1] = cometPos.y + ay*reach + p.oy*fan;
+      pos[i3+2] = cometPos.z + az*reach + p.oz*fan;
+      var a = Math.sin(Math.PI*f);
+      col[i3]   = (hot.r + (cold.r-hot.r)*f) * a;
+      col[i3+1] = (hot.g + (cold.g-hot.g)*f) * a;
+      col[i3+2] = (hot.b + (cold.b-hot.b)*f) * a;
+    }
+    sys.geo.attributes.position.needsUpdate = true;
+    sys.geo.attributes.color.needsUpdate = true;
+  }
+
+  dispose() {
+    [this.dust, this.ion].forEach(function (s) {
+      if (s.points.parent) s.points.parent.remove(s.points);
+      s.geo.dispose();
+      if (s.mat.map) { /* shared glow texture — do NOT dispose */ }
+      s.mat.dispose();
+    });
+  }
+}
+
 /* ── Renderer ────────────────────────────────────────────────────────────── */
 
 class ThreeJSRenderer {
@@ -468,7 +810,8 @@ class ThreeJSRenderer {
     });
     this.renderer.setPixelRatio(this.DPR);
     this.renderer.setSize(this.W, this.H);
-    this.renderer.setClearColor(0x000000, 0);
+    // Near-black with a hint of blue — deeper than pure black next to stars
+    this.renderer.setClearColor(0x000005, 1);
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.autoClear = false;
     this.domElement = canvas;
@@ -487,24 +830,38 @@ class ThreeJSRenderer {
     this.camera = new THREE.PerspectiveCamera(FOV_DEG, this.W / Math.max(1, this.H), 1e-6, 500);
     this.camera.up.set(0, 0, 1);
     this._camPos = new THREE.Vector3();
+    this._cometPos = new THREE.Vector3();   // scratch for CometTail.update
+    this._sunOrigin = new THREE.Vector3(0, 0, 0);
     this._vpMat = new THREE.Matrix4();
     // Shared view-projection matrix (column-major) — the page's ws() reads it
     this._vpArray = new Float32Array(16);
     this._wpp1 = 1;   // world units per pixel at distance 1 (set per frame)
 
-    // Lights: sun point light + ambient so night sides stay readable
-    this._sunLight = new THREE.PointLight(0xffe0a0, 2.5, 50);
+    // Cinematic lighting: the Sun is the only real source. distance=0 keeps
+    // it unattenuated across the whole system (r128 non-physical mode);
+    // decay=2 is the physical falloff exponent if physicallyCorrectLights
+    // ever gets switched on.
+    this._sunLight = new THREE.PointLight(0xffe0a0, 2.5, 0, 2);
     this._sunLight.position.set(0, 0, 0);
     this.scene.add(this._sunLight);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    // Minimal ambient — night sides go genuinely dark
+    this.scene.add(new THREE.AmbientLight(0x111122, 0.08));
+    // Weak cool fill riding with the camera — stands in for bounced sunlight
+    // so the near side never reads pitch black (cheaper than shadow maps)
+    this._fillLight = new THREE.DirectionalLight(0x334455, 0.15);
+    this.scene.add(this._fillLight);
+    this.scene.add(this._fillLight.target);
 
     this._glowTexture = this._makeGlowTexture();
     this._texLoader = new THREE.TextureLoader();
+    this._buildRockMaterials();
 
     this._buildStars();
     this._buildSun();
     this._buildPlanets();
     this._buildMoons();
+    this._buildDwarfPlanets();
+    this._buildComets();
     this._buildNEOs();
     this._buildCone();
 
@@ -528,6 +885,21 @@ class ThreeJSRenderer {
     this._rockMats    = {};
 
     this.onModelApplied = null;   // page hook: (context, modelKey, noticeText)
+
+    // Manifest of imported GLB shape models + textures (Parte 1). Missing
+    // file / offline: every body keeps its sphere or procedural fallback.
+    this._manifest = null;
+    var selfM = this;
+    if (typeof fetch !== 'undefined') {
+      fetch('/assets/models/manifest.json')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (m) {
+          if (!m) return;
+          selfM._manifest = m;
+          selfM._onManifestLoaded();
+        })
+        .catch(function () { /* keep fallbacks */ });
+    }
 
     this._lastNow = performance.now();
     this._loadTextures();
@@ -553,6 +925,39 @@ class ThreeJSRenderer {
     var tex = new THREE.CanvasTexture(c);
     tex.encoding = THREE.sRGBEncoding;
     return tex;
+  }
+
+  // 4 shared PBR rock materials fed by real AmbientCG scans (CC0), fetched by
+  // scripts/downloadAsteroidModels.js. Each material starts as flat regolith
+  // gray-brown and every map pops in as its PNG arrives; a 404 (script never
+  // run / offline) just leaves the fallback color — no crash, no black rock.
+  _buildRockMaterials() {
+    var self = this;
+    this._rockMaterials = ['rock_a', 'rock_b', 'rock_c', 'rock_d'].map(function (id) {
+      var mat = new THREE.MeshStandardMaterial({
+        color: self._col('#8a7a6a'),
+        roughness: 0.92,
+        metalness: 0.04,
+        normalScale: new THREE.Vector2(2.0, 2.0),
+      });
+      function load(kind, assign) {
+        self._texLoader.load(self._textureBase + 'rock/' + id + '_' + kind + '.png',
+          function (tex) {
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.anisotropy = Math.min(4, self.renderer.capabilities.getMaxAnisotropy());
+            assign(tex);
+            mat.needsUpdate = true;
+          }, undefined, function () { /* keep the flat fallback color */ });
+      }
+      load('albedo', function (tex) {
+        tex.encoding = THREE.sRGBEncoding;
+        mat.map = tex;
+        mat.color.set(0xffffff);
+      });
+      load('normal', function (tex) { mat.normalMap = tex; });
+      load('roughness', function (tex) { mat.roughnessMap = tex; });
+      return mat;
+    });
   }
 
   _buildStars() {
@@ -612,6 +1017,38 @@ class ThreeJSRenderer {
     this.sunGlow = new THREE.Sprite(mat);
     this.sunGlow.position.set(0, 0, 0);
     this.scene.add(this.sunGlow);
+
+    // Second, wider and fainter blue-white aura — fake two-layer bloom, so
+    // the Sun reads as a star without an EffectComposer pass
+    var mat2 = new THREE.SpriteMaterial({
+      map: this._makeAuraTexture(),
+      color: this._col('#aaccff'),
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      opacity: 0.15,
+      depthWrite: false,
+    });
+    this.sunGlow2 = new THREE.Sprite(mat2);
+    this.sunGlow2.position.set(0, 0, 0);
+    this.scene.add(this.sunGlow2);
+  }
+
+  // Broader, softer radial gradient than _makeGlowTexture — the outer aura
+  // needs a long gentle tail, not the tight core of the primary halo
+  _makeAuraTexture() {
+    var c = document.createElement('canvas');
+    c.width = c.height = 256;
+    var g = c.getContext('2d');
+    var grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(0.3, 'rgba(255,255,255,0.28)');
+    grad.addColorStop(0.65, 'rgba(255,255,255,0.07)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    var tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    return tex;
   }
 
   _orbitLine(orbitPts, colorHex, opacity) {
@@ -655,8 +1092,10 @@ class ThreeJSRenderer {
 
       if (isEarth) {
         // Weak blue point light riding with Earth — lifts nearby asteroids.
-        // Light range/intensity ignore the parent's scale; only position inherits.
-        group.add(new THREE.PointLight(0x4488ff, 0.8, 15));
+        // Light range/intensity ignore the parent's scale; only position
+        // inherits. Range 0.05 AU: with the near-zero ambient a system-wide
+        // reach would tint half the map blue.
+        group.add(new THREE.PointLight(0x4488ff, 0.5, 0.05));
         // Atmosphere: back-face shell slightly larger than the globe reads as
         // a bright rim from every angle.
         var halo = new THREE.Mesh(
@@ -773,6 +1212,91 @@ class ThreeJSRenderer {
     });
   }
 
+  // Dwarf planets (Parte 4): sphere fallback now, GLB from the manifest when
+  // it arrives. Positions come from the page (frame.dwarfPlanets — radar.ejs
+  // solves the Kepler elements); orbit polylines come in via opts.
+  _buildDwarfPlanets() {
+    var self = this;
+    this._dwarfs = (this.opts.dwarfPlanets || []).map(function (dd) {
+      var def = dd.def;
+      var group = new THREE.Group();
+      group.visible = false;
+      self.scene.add(group);
+      var mesh = new THREE.Mesh(self._moonGeoShared, new THREE.MeshStandardMaterial({
+        color: self._col(def.color),
+        roughness: 0.95,
+        metalness: 0.0,
+      }));
+      mesh.rotation.x = Math.PI / 2;               // texture pole → +Z
+      group.add(mesh);
+      // Órbita: cinza-esverdeado, sutilmente distinta das dos planetas
+      var orbit = self._orbitLine(dd.orbitPts, '#8a9a84', 0.28);
+      orbit.visible = false;
+      self.scene.add(orbit);
+      return { def: def, group: group, mesh: mesh, model: null, orbit: orbit, screen: null };
+    });
+  }
+
+  // Comets (Parte 5): GLB/sphere nucleus + dashed orbit + coma sprite +
+  // PointLight + a particle CometTail (dust + ion). Coma and tails are
+  // scene-level (world units — a child of the min-px group would inherit its
+  // scale).
+  _buildComets() {
+    var self = this;
+    this._comets = (this.opts.comets || []).map(function (cd) {
+      var def = cd.def;
+      var group = new THREE.Group();
+      group.visible = false;
+      self.scene.add(group);
+      var mesh = new THREE.Mesh(self._moonGeoShared, new THREE.MeshStandardMaterial({
+        color: self._col(def.color),
+        roughness: 0.98,
+        metalness: 0.0,
+      }));
+      mesh.rotation.x = Math.PI / 2;
+      group.add(mesh);
+
+      // Coma: additive radial-gradient sprite, scene-level so its size stays
+      // in world units. Bright blue-white head to match the reference photo;
+      // scale/opacity/pulse are driven per frame in _drawComets.
+      var comaCol = self._col(0xdfeaff);
+      var coma = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: self._glowTexture,
+        color: comaCol,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        opacity: 0.0,
+        depthWrite: false,
+      }));
+      coma.visible = false;
+      self.scene.add(coma);
+      // Weak blue-white point light near perihelion. Intensity toggles, never
+      // the light COUNT — a changing count recompiles every material's shader.
+      var light = new THREE.PointLight(0xaaccee, 0.0, 0.6);
+      group.add(light);
+
+      // Dashed dark-cyan orbit (world-unit dashes; needs line distances)
+      var ogeo = new THREE.BufferGeometry();
+      ogeo.setAttribute('position', new THREE.BufferAttribute(cd.orbitPts, 3));
+      var orbit = new THREE.LineLoop(ogeo, new THREE.LineDashedMaterial({
+        color: self._col('#2a7f8a'),
+        transparent: true, opacity: 0.32, dashSize: 0.18, gapSize: 0.12,
+      }));
+      orbit.computeLineDistances();
+      orbit.frustumCulled = false;
+      orbit.visible = false;
+      self.scene.add(orbit);
+
+      // Particle tails (dust + ion) — pooled Points added to the main scene
+      var tail = new CometTail(self.scene, self._glowTexture, def.tail_color);
+
+      return {
+        def: def, group: group, mesh: mesh, model: null,
+        coma: coma, light: light, orbit: orbit, tail: tail, screen: null,
+      };
+    });
+  }
+
   // The Solar System Scope ring texture is a radial strip: u = radius.
   // RingGeometry's default UVs are planar, so remap them.
   _remapRingUVs(geo, inner, outer) {
@@ -793,15 +1317,11 @@ class ThreeJSRenderer {
 
       // Procedural rock — deterministic per designation — with a backface-
       // hull outline in the risk color so the marker keeps its risk reading.
+      // Texture set follows the same seed%4 pick as the shape archetype.
       var seed = _hashString(String(def.id || def.name || 'neo'));
       var geo = generateAsteroidGeometry(seed);
       var group = new THREE.Group();
-      var rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-        color: self._col('#8f8578'),
-        roughness: 0.9,
-        metalness: 0.0,
-        flatShading: true,
-      }));
+      var rock = new THREE.Mesh(geo, self._rockMaterials[(seed >>> 0) % self._rockMaterials.length]);
       group.add(rock);
       var outline = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
         color: self._col(RISK_COLOR[def.risk] || '#f0f4ff'),
@@ -1003,14 +1523,31 @@ class ThreeJSRenderer {
     this._promoSpeed = 0.3 + rand() * 0.9;           // rad/s
 
     var key = _modelKeyFor(designation, name);
+    if (!key) {
+      // Manifest fuzzy-name fallback (Parte 2): any of the 1552 imported
+      // DAMIT/radar models can serve a focused NEO or MPC asteroid
+      var fz = this._fuzzyModel(name || designation);
+      if (fz) key = fz.slug;
+    }
     if (key) {
       var self = this;
       this._loadModel(key, function (inst) {
         if (!inst || self._promoMesh !== group) return;   // failed or stale
+        // Manifest GLBs ship obj2gltf's default material and no UVs — dress
+        // them in the shared PBR rock set (curated NASA GLBs keep their own)
+        if (!MODEL_NOTICE[key]) {
+          self._ensureSphericalUVs(inst);
+          var rockMat = self._getRockMaterial(seed);
+          inst.traverse(function (child) {
+            if (child.isMesh) child.material = rockMat;
+          });
+        }
         group.remove(mesh);
         group.add(inst);
         self._promoModelKey = key;
-        if (self.onModelApplied) self.onModelApplied('promoted', key, MODEL_NOTICE[key]);
+        if (self.onModelApplied) {
+          self.onModelApplied('promoted', key, MODEL_NOTICE[key] || MODEL_NOTICE_DEFAULT);
+        }
       });
     }
   }
@@ -1095,6 +1632,10 @@ class ThreeJSRenderer {
   /* ── Shared model helpers (promoted object + focus mode) ───────────────── */
 
   _getRockMaterial(seed) {
+    // Real AmbientCG rock set when its albedo already arrived (map set on
+    // load success only) — canvas-procedural PBR set otherwise
+    var real = this._rockMaterials[(seed >>> 0) % this._rockMaterials.length];
+    if (real && real.map) return real;
     var idx = (seed >>> 0) % ASTEROID_ARCHETYPES.length;
     if (!this._rockMats[idx]) {
       var tex = generateRockTexture(idx + 1, 512);   // 8 fixed texture seeds
@@ -1151,6 +1692,190 @@ class ThreeJSRenderer {
     });
   }
 
+  /* ── Manifest (imported GLB shape models — Parte 1) ────────────────────── */
+
+  /** Exact-slug lookup across every manifest category.
+   *  Returns { slug, modelPath, texturePath } or null. */
+  _findModel(slug) {
+    if (!this._manifest || !slug) return null;
+    var cats = ['asteroids', 'comets', 'dwarf_planets', 'moons'];
+    for (var c = 0; c < cats.length; c++) {
+      var arr = this._manifest[cats[c]] || [];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].slug === slug) return arr[i];
+      }
+    }
+    return null;
+  }
+
+  // Body-prefix lookup inside ONE category list — slugs are
+  // <body>_<source> ("dione_gaskell_200k_poly"), so "dione" matches exactly
+  // or as "dione_…". Same rule the manifest generator used for textures.
+  _findModelByBody(list, body) {
+    if (!list || !body) return null;
+    for (var i = 0; i < list.length; i++) {
+      var s = list[i].slug;
+      if (s === body || s.indexOf(body + '_') === 0) return list[i];
+    }
+    return null;
+  }
+
+  /** Fuzzy name → manifest entry. Normalizes to a slug ("Ra-Shalom" →
+   *  "ra_shalom" → prefix test), searching asteroids first so asteroid 85 Io
+   *  never collides with the moon Io. Prefix must land on a "_" boundary —
+   *  the substring false positives of the first manifest are what this
+   *  whole scheme replaced. */
+  _fuzzyModel(name) {
+    if (!this._manifest) return null;
+    var norm = String(name || '').toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!norm) return null;
+    var cats = ['asteroids', 'comets', 'dwarf_planets', 'moons'];
+    for (var c = 0; c < cats.length; c++) {
+      var hit = this._findModelByBody(this._manifest[cats[c]], norm);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /** Model resolution for a catalog NEO (Parte 2): curated MODEL_MAP first
+   *  (numeric designation), manifest fuzzy-name second, null = procedural. */
+  _getNEOModel(neo) {
+    var key = _modelKeyFor(neo.id, neo.name);
+    if (key) return { key: key, modelPath: '/assets/models/' + key + '.glb' };
+    var entry = this._fuzzyModel(neo.name);
+    if (entry) return { key: entry.slug, modelPath: entry.modelPath };
+    return null;
+  }
+
+  _onManifestLoaded() {
+    this._applyMoonModels();
+    this._applySmallBodyModels(this._dwarfs, this._manifest.dwarf_planets);
+    this._applySmallBodyModels(this._comets, this._manifest.comets);
+    this._logNEOModels();
+  }
+
+  // The imported OBJs ship POSITION only — no normals (black under any lit
+  // material) and no UVs. Generate both: computed vertex normals, plus
+  // spherical UVs for the equirectangular NASA maps. Non-indexed pass fixes
+  // the u wrap seam per triangle; RepeatWrapping absorbs u > 1.
+  _ensureSphericalUVs(root) {
+    root.traverse(function (child) {
+      if (!child.isMesh || !child.geometry) return;
+      var geo = child.geometry;
+      if (geo.attributes.uv && geo.attributes.normal) return;
+      if (geo.index) { geo = geo.toNonIndexed(); child.geometry = geo; }
+      if (!geo.attributes.normal) geo.computeVertexNormals();
+      if (geo.attributes.uv) return;
+      var pos = geo.attributes.position;
+      var uv = new Float32Array(pos.count * 2);
+      for (var i = 0; i < pos.count; i++) {
+        var x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        var r = Math.sqrt(x * x + y * y + z * z) || 1;
+        uv[i * 2]     = 0.5 + Math.atan2(y, x) / (2 * Math.PI);
+        uv[i * 2 + 1] = 0.5 + Math.asin(Math.max(-1, Math.min(1, z / r))) / Math.PI;
+      }
+      for (var t3 = 0; t3 < pos.count; t3 += 3) {
+        var u0 = uv[t3 * 2], u1 = uv[(t3 + 1) * 2], u2 = uv[(t3 + 2) * 2];
+        var uMax = Math.max(u0, u1, u2);
+        if (uMax - Math.min(u0, u1, u2) > 0.5) {
+          if (uMax - u0 > 0.5) uv[t3 * 2] += 1;
+          if (uMax - u1 > 0.5) uv[(t3 + 1) * 2] += 1;
+          if (uMax - u2 > 0.5) uv[(t3 + 2) * 2] += 1;
+        }
+      }
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    });
+  }
+
+  // Replace the GLB's exported materials with our standard rock material and
+  // pop the texture in when it arrives (never blocks the mesh showing up).
+  _applyManifestMaterial(inst, texturePath, fallbackColor) {
+    var self = this;
+    var mat = new THREE.MeshStandardMaterial({
+      color: this._col(fallbackColor != null ? fallbackColor : 0x999999),
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    inst.traverse(function (child) {
+      if (child.isMesh) child.material = mat;
+    });
+    if (texturePath) {
+      this._texLoader.load(texturePath, function (tex) {
+        tex.encoding = THREE.sRGBEncoding;
+        tex.wrapS = THREE.RepeatWrapping;            // seam-fix u may exceed 1
+        tex.anisotropy = Math.min(4, self.renderer.capabilities.getMaxAnisotropy());
+        mat.map = tex;
+        mat.color.set(0xffffff);
+        mat.needsUpdate = true;
+      }, undefined, function () { /* keep flat color */ });
+    }
+    return mat;
+  }
+
+  // Parte 3: moons whose id has a manifest shape model swap their textured
+  // sphere for the real GLB. Texture-only moons (Europa, Titan, …) simply
+  // keep the sphere + id.jpg path from _loadTextures().
+  _applyMoonModels() {
+    var self = this;
+    if (!this._gltfLoader) return;
+    Object.keys(this._moons).forEach(function (id) {
+      var m = self._moons[id];
+      var entry = self._findModelByBody(self._manifest.moons, id);
+      if (!entry) return;
+      self._loadModel(entry.slug, function (inst) {
+        if (!inst || m.model) return;
+        self._ensureSphericalUVs(inst);
+        // id.jpg is already requested for the sphere — same URL, so the
+        // browser serves it from cache (the manifest textures are the multi-
+        // MB enhanced-color scans; the equirect id.jpg reads the same here).
+        self._applyManifestMaterial(inst, self._textureBase + id + '.jpg',
+          MOON_FALLBACK[id] != null ? MOON_FALLBACK[id] : 0x999999);
+        m.model = inst;
+        m.group.add(inst);
+        m.mesh.visible = false;                      // hide the sphere
+      });
+    });
+  }
+
+  // Partes 4/5: dwarf planets + comets — same swap, driven by def.body
+  _applySmallBodyModels(list, manifestList) {
+    var self = this;
+    if (!this._gltfLoader || !list) return;
+    list.forEach(function (d) {
+      var entry = self._findModelByBody(manifestList, d.def.body);
+      if (!entry) return;
+      // Skip scientific "regions" maps (false-colour geologic units — 67P ships
+      // only churyumov-gerasimenko_regions.jpg). A flat dark grey-brown surface
+      // reads far better than region colours splashed on the nucleus.
+      var texPath = entry.texturePath;
+      var fallbackColor = d.def.color;
+      if (texPath && /region/i.test(texPath)) {
+        texPath = null;
+        fallbackColor = 0x554433;
+      }
+      self._loadModel(entry.slug, function (inst) {
+        if (!inst || d.model) return;
+        self._ensureSphericalUVs(inst);
+        self._applyManifestMaterial(inst, texPath, fallbackColor);
+        d.model = inst;
+        d.group.add(inst);
+        d.mesh.visible = false;
+      });
+    });
+  }
+
+  // Parte 6: log which of the 47 catalog NEOs resolve to a real shape model.
+  // Diagnostic only — rendering behavior is unchanged by this.
+  _logNEOModels() {
+    var neos = this.opts.neos || [];
+    console.log('[NEO Models]');
+    for (var i = 0; i < neos.length; i++) {
+      var got = this._getNEOModel(neos[i]);
+      console.log('  ' + neos[i].name + ': ' + (got ? got.modelPath : 'procedural'));
+    }
+  }
+
   /* ── Per-frame update ──────────────────────────────────────────────────── */
 
   /** Position the camera from the page-owned spherical state (frame.cam) and
@@ -1166,6 +1891,9 @@ class ThreeJSRenderer {
     this.camera.lookAt(cam.tx, cam.ty, cam.tz);
     this.camera.updateMatrixWorld(true);
     this._camPos.copy(this.camera.position);
+    // Camera-riding fill: lights whatever face the user is looking at
+    this._fillLight.position.copy(this.camera.position);
+    this._fillLight.target.position.set(cam.tx, cam.ty, cam.tz);
     this._vpMat.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this._vpArray.set(this._vpMat.elements);
     // AU per pixel at distance 1 — multiply by a body's camera distance
@@ -1206,6 +1934,9 @@ class ThreeJSRenderer {
     // the 0.04 base radius belongs to the sphere geometry only.
     var glowR = Math.max(r * 6, 80 * wpp);
     this.sunGlow.scale.set(glowR, glowR, 1);
+    // Outer aura: twice the primary halo, much fainter (fake bloom layer 2)
+    var glow2R = Math.max(r * 12, 170 * wpp);
+    this.sunGlow2.scale.set(glow2R, glow2R, 1);
   }
 
   _drawPlanets(state, frame, dt) {
@@ -1255,13 +1986,26 @@ class ThreeJSRenderer {
       m.group.position.set(mx, my, mz);
 
       // NEO-sized min-px dot from afar, true physical radius up close
-      var wpp = this._wpp1 * this._camDist(mx, my, mz);
+      var dist = this._camDist(mx, my, mz);
+      var wpp = this._wpp1 * dist;
       var r = Math.max(m.data.r, 1.5 * wpp);
+      // Focused moon: promo-style floor frozen at the luna framing distance —
+      // Phobos/Deimos read as real rocks instead of 2 px dots, and dollying
+      // in past the frame distance grows them instead of re-shrinking
+      if (state.focusTarget && state.focusTarget.type === 'moon' &&
+          state.focusTarget.id === id) {
+        r = Math.max(r, FOCUS_BODY_MIN_PX * this._wpp1 * Math.max(dist, FOCUS_BODY_FRAME_DIST));
+      }
       m.group.scale.setScalar(r);
 
       // Tidally locked: the same face keeps pointing at the parent.
       // Math.PI − angle turns the texture near side toward the planet.
-      if (m.data.tidal) m.mesh.rotation.y = Math.PI - lp.angle;
+      // GLB shape models spin about +Z (their native spin axis — no sphere
+      // pole bake), so the same lock angle goes on rotation.z there.
+      if (m.data.tidal) {
+        m.mesh.rotation.y = Math.PI - lp.angle;
+        if (m.model) m.model.rotation.z = Math.PI - lp.angle;
+      }
 
       // Screen cache for page hit tests + labels. sep = on-screen distance to
       // the parent's centre (page skips moons buried inside the parent disc).
@@ -1284,6 +2028,104 @@ class ThreeJSRenderer {
   getMoonScreenPos(id) {
     var m = this._moons[id];
     return m && m.group.visible ? m.screen : null;
+  }
+
+  /** Same contract for dwarf planets / comets, by index into the shared
+   *  DWARF_PLANETS / COMETS tables (page hit tests + focus). */
+  getDwarfScreenPos(i) {
+    var d = this._dwarfs && this._dwarfs[i];
+    return d && d.group.visible ? d.screen : null;
+  }
+
+  getCometScreenPos(i) {
+    var c = this._comets && this._comets[i];
+    return c && c.group.visible ? c.screen : null;
+  }
+
+  // Parte 4 — positions arrive solved from the page (frame.dwarfPlanets)
+  _drawDwarfPlanets(state, frame, dt) {
+    if (!this._dwarfs || !frame.dwarfPlanets) return;
+    for (var i = 0; i < this._dwarfs.length; i++) {
+      var d = this._dwarfs[i];
+      var f = frame.dwarfPlanets[i];
+      var visible = !!(f && f.visible);
+      d.group.visible = visible;
+      d.orbit.visible = visible && !!state.showOrbits;
+      if (!visible) { d.screen = null; continue; }
+      d.group.position.set(f.x, f.y, f.z);
+      // Min-px 3: smaller than planets, bigger than the asteroid cloud
+      var dist = this._camDist(f.x, f.y, f.z);
+      var wpp = this._wpp1 * dist;
+      var r = Math.max(d.def.r, (d.def.minPx || 3) * wpp);
+      if (state.focusTarget && state.focusTarget.type === 'dwarf' &&
+          state.focusTarget.idx === i) {
+        r = Math.max(r, FOCUS_BODY_MIN_PX * this._wpp1 * Math.max(dist, FOCUS_BODY_FRAME_DIST));
+      }
+      d.group.scale.setScalar(r);
+      // Slow spin — sphere about its baked pole, GLB about native +Z
+      var spin = state.simTime * 0.7;
+      d.mesh.rotation.y = spin;
+      if (d.model) d.model.rotation.z = spin;
+      var s = this._ws(f.x, f.y, f.z);
+      d.screen = s ? { x: s.x, y: s.y, r: Math.max(4, r / wpp) } : null;
+    }
+  }
+
+  // Parte 5 — comets: nucleus + coma + particle CometTail (dust + ion)
+  _drawComets(state, frame, dt) {
+    if (!this._comets || !frame.comets) return;
+    var simDt = frame.simDt || 1.0;
+    for (var i = 0; i < this._comets.length; i++) {
+      var c = this._comets[i];
+      var f = frame.comets[i];
+      var visible = !!(f && f.visible);
+      c.group.visible = visible;
+      c.orbit.visible = visible && !!state.showOrbits;
+      if (!visible) {
+        c.screen = null; c.coma.visible = false; c.light.intensity = 0;
+        if (c.tail) { c.tail.dust.points.visible = false; c.tail.ion.points.visible = false; }
+        continue;
+      }
+      c.group.position.set(f.x, f.y, f.z);
+      var dist = this._camDist(f.x, f.y, f.z);
+      var wpp = this._wpp1 * dist;
+      var r = Math.max(c.def.r, (c.def.minPx || 2.5) * wpp);
+      if (state.focusTarget && state.focusTarget.type === 'comet' &&
+          state.focusTarget.idx === i) {
+        r = Math.max(r, FOCUS_BODY_MIN_PX * this._wpp1 * Math.max(dist, FOCUS_BODY_FRAME_DIST));
+      }
+      c.group.scale.setScalar(r);
+      var spin = state.simTime * 1.3;
+      c.mesh.rotation.y = spin;
+      if (c.model) c.model.rotation.z = spin;
+
+      // Particle tails — CometTail owns the smoothed activation (crossing
+      // 2.5 AU ramps up/down over seconds). Emission boosts while focused.
+      var sunDist = f.sunDist || Math.hypot(f.x, f.y, f.z) || 1e-6;
+      var focusBoost = !!(state.focusTarget && state.focusTarget.type === 'comet' &&
+                          state.focusTarget.idx === i);
+      if (c.tail) {
+        this._cometPos.set(f.x, f.y, f.z);
+        c.tail.update(this._cometPos, this._sunOrigin, sunDist, simDt, focusBoost);
+      }
+      var act = c.tail ? c.tail.activity()
+        : Math.max(0, (COMET_ACTIVE_AU - sunDist) / COMET_ACTIVE_AU);
+      c.light.intensity = act > 0.02 ? 0.4 * Math.min(1, act * 2) : 0;
+
+      // Coma sprite (scene-level, world units with a px floor so it also reads
+      // on the wide map). Focused comet gets a big bright blue-white bloom head
+      // (50–140 px), like the reference photo; on the map it's a small halo.
+      var comaWorld = c.def.r * 300 * act * (focusBoost ? 3 : 1) + c.def.r * 2;
+      var comaPx = (focusBoost ? (50 + act * 90) : (14 * act + 3)) * wpp;
+      var pulse = 1 + 0.05 * Math.sin(performance.now() * 0.002);
+      c.coma.position.set(f.x, f.y, f.z);
+      c.coma.scale.setScalar(Math.max(comaWorld, comaPx) * pulse);
+      c.coma.material.opacity = focusBoost ? Math.min(0.9, act * 0.6 + 0.3) : act * 0.55;
+      c.coma.visible = act > 0.01;
+
+      var s = this._ws(f.x, f.y, f.z);
+      c.screen = s ? { x: s.x, y: s.y, r: Math.max(4, r / wpp) } : null;
+    }
   }
 
   _drawNEOs(state, frame) {
@@ -1371,13 +2213,33 @@ class ThreeJSRenderer {
         // while this asteroid is the focus target — a dossier promotion seen
         // from the map keeps the small 8px marker floor, otherwise the rock
         // dwarfs the whole inner system.
-        var wpp = this._wpp1 * this._camDist(pr.x, pr.y, pr.z);
+        // While focused, the min-px floor is evaluated at FOCUS_FRAME_DIST
+        // (not the live camera distance): the world size stays constant, so
+        // the wheel dolly reads as a real approach — 60 px at the entry
+        // framing, growing to fill the screen near _focusMinDist.
+        var dist = this._camDist(pr.x, pr.y, pr.z);
+        var wpp = this._wpp1 * (pr.focused ? Math.max(dist, FOCUS_FRAME_DIST) : dist);
         var minPx = pr.focused ? PROMO_MIN_PX : 8;
         var scale = Math.max(pr.radius || 0, minPx * wpp);
         this._promoMesh.position.set(pr.x, pr.y, pr.z);
         this._promoMesh.scale.setScalar(scale);
         this._promoMesh.rotateOnAxis(this._promoAxis, this._promoSpeed * dt);
       }
+    }
+    // Warm sun-position point light for the asteroid close-up — lifts the
+    // rock's lit side above the minimal ambient while the camera hugs it.
+    // Also on for focused moons/dwarfs/comets: same close-up, same need.
+    var tgF = state.focusTarget;
+    var smallBodyFocus = !!(tgF && (tgF.type === 'moon' || tgF.type === 'dwarf' || tgF.type === 'comet'));
+    if ((active && frame.promoted.focused) || smallBodyFocus) {
+      if (!this._focusAstLight) {
+        this._focusAstLight = new THREE.PointLight(0xfff5e0, 1.5, 0, 2);
+        this._focusAstLight.position.set(0, 0, 0);   // the Sun
+        this.scene.add(this._focusAstLight);
+      }
+      this._focusAstLight.visible = true;
+    } else if (this._focusAstLight) {
+      this._focusAstLight.visible = false;
     }
     if (this._promoOrbit) this._promoOrbit.visible = active;
     if (this._trajLine) this._trajLine.visible = active;
@@ -1393,7 +2255,6 @@ class ThreeJSRenderer {
 
     // Planet labels — _ws() returns null behind the camera: skip those
     if (state.showPlanets) {
-      g.fillStyle = 'rgba(200,210,230,0.65)';
       g.font = '10px "JetBrains Mono", monospace';
       for (var i = 0; i < this.planets.length; i++) {
         var f = frame.planets[i];
@@ -1401,6 +2262,7 @@ class ThreeJSRenderer {
         var p = this.planets[i];
         var sp = this._ws(f.x, f.y, 0);
         if (!sp) continue;
+        g.fillStyle = PLANET_LABEL_COLOR[p.def.key] || 'rgba(200,215,255,0.9)';
         g.fillText(p.def.name, sp.x + p.def.r + 6, sp.y + 3);
       }
       // Moon labels — while the camera is inside a parent system and each
@@ -1412,6 +2274,27 @@ class ThreeJSRenderer {
         var mm = this._moons[mid];
         if (!mm.group.visible || !mm.labelOn || !mm.screen) continue;
         g.fillText(mm.data.name, mm.screen.x + mm.screen.r + 5, mm.screen.y + 3);
+      }
+      g.restore();
+    }
+
+    // Dwarf planet + comet labels (screen positions cached by their draws)
+    if (this._dwarfs || this._comets) {
+      g.save();
+      g.font = '10px "JetBrains Mono", monospace';
+      var dl = this._dwarfs || [];
+      g.fillStyle = 'rgba(196, 206, 182, 0.85)';     // cinza-esverdeado
+      for (var di = 0; di < dl.length; di++) {
+        var dd = dl[di];
+        if (!dd.group.visible || !dd.screen) continue;
+        g.fillText(dd.def.name, dd.screen.x + dd.screen.r + 5, dd.screen.y + 3);
+      }
+      var cl = this._comets || [];
+      g.fillStyle = 'rgba(140, 214, 224, 0.85)';     // ciano
+      for (var ci = 0; ci < cl.length; ci++) {
+        var cc = cl[ci];
+        if (!cc.group.visible || !cc.screen) continue;
+        g.fillText(cc.def.short || cc.def.name, cc.screen.x + cc.screen.r + 5, cc.screen.y + 3);
       }
       g.restore();
     }
@@ -1435,6 +2318,31 @@ class ThreeJSRenderer {
         g.font = '10px "JetBrains Mono", monospace';
         g.fillText('+Δv', b.x + 4, b.y - 4);
       }
+    }
+
+    // Labels dos 47 NEOs — só no modo radar, não no focus. É um guard INLINE
+    // (não um `return`): sair do método aqui também mataria os labels de
+    // planeta/lua e os demais elementos do overlay no modo radar.
+    if (!frame.focusMode && frame.neos && frame.cam.dist < 15) {
+      g.save();
+      for (var ni = 0; ni < this.neos.length; ni++) {
+        // O selecionado/hover ganham label maior logo abaixo; o focado é
+        // nomeado pelo HUD de foco — pular para não duplicar.
+        if (ni === frame.selIdx || ni === frame.hovIdx || ni === frame.focusNeoIdx) continue;
+        var nn = frame.neos[ni];
+        var nsp = this._ws(nn.x, nn.y, nn.z || 0);
+        if (!nsp) continue;
+        if (nsp.x < 0 || nsp.x > this.W || nsp.y < 0 || nsp.y > this.H) continue;
+        // Closer = bigger: 12px on top of the NEO, easing to 9px across the map
+        var ndist = this._camDist(nn.x, nn.y, nn.z || 0);
+        var fontSize = Math.max(9, Math.min(12, 12 - ndist * 1.2));
+        g.font = fontSize + 'px "JetBrains Mono", monospace';
+        g.fillStyle = 'rgba(200, 215, 255, 0.75)';
+        g.globalAlpha = 0.75;
+        g.fillText(this.neos[ni].def.name, nsp.x + 8, nsp.y - 6);
+        g.globalAlpha = 1.0;
+      }
+      g.restore();
     }
 
     // Selected / hovered NEO labels
@@ -1551,6 +2459,8 @@ class ThreeJSRenderer {
     this._drawSun();
     this._drawPlanets(state, frame, dt);
     this._drawMoons(state, frame);
+    this._drawDwarfPlanets(state, frame, dt);
+    this._drawComets(state, frame, dt);
     this._drawNEOs(state, frame);
     this._drawConeMesh(state, frame);
     this._drawMPCAsteroids(state, frame);

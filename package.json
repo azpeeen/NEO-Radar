@@ -44,5 +44,8 @@
   "bugs": {
     "url": "https://github.com/azpeeen/NEO-Radar/issues"
   },
-  "homepage": "https://neo-radar.azpen.dev"
+  "homepage": "https://neo-radar.azpen.dev",
+  "devDependencies": {
+    "obj2gltf": "^3.2.0"
+  }
 }
