@@ -1,0 +1,316 @@
+<%- include('partials/head', { title: 'About — NEO Radar' }) %>
+
+<style>
+  body { overflow-x: hidden; }
+
+  .about-hero {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 140px 40px 40px;
+  }
+  .about-hero h1 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.035em;
+    font-size: clamp(48px, 6vw, 76px);
+    line-height: 1;
+    margin: 20px 0 16px;
+  }
+  .about-hero .lede {
+    font-size: 17px;
+    color: var(--ink-3);
+    max-width: 560px;
+    margin: 0;
+  }
+
+  .about-section {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 56px 40px;
+    border-top: 1px solid var(--line);
+  }
+  .about-section h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    font-size: 30px;
+    line-height: 1.1;
+    margin: 0 0 22px;
+  }
+  .about-section p {
+    font-size: 15.5px;
+    color: var(--ink-2);
+    line-height: 1.7;
+    max-width: 680px;
+    margin: 0 0 16px;
+  }
+
+  .press-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .press-list a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    color: var(--cobalt-soft);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 160ms;
+  }
+  .press-list a:hover { border-color: var(--cobalt-soft); }
+
+  .supporters-summary {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink-2);
+    margin-bottom: 24px;
+  }
+  .supporters-summary strong { color: var(--green); font-weight: 500; }
+
+  .supporters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  .supporter-card {
+    padding: 16px 18px;
+    border-radius: var(--r-md);
+  }
+  .supporter-card .row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 14px;
+  }
+  .supporter-card .name {
+    color: var(--ink);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .supporter-card .amount {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--green);
+    white-space: nowrap;
+  }
+  .supporter-card .message {
+    margin-top: 8px;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--ink-3);
+    line-height: 1.5;
+  }
+  .supporters-empty {
+    font-size: 14px;
+    color: var(--ink-4);
+  }
+
+  .support-ctas {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 28px 0 16px;
+  }
+  .support-note {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    color: var(--ink-4);
+    max-width: 560px;
+  }
+
+  .pix-toggle {
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--ink);
+  }
+  .pix-toggle:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.03); }
+
+  .pix-panel {
+    display: none;
+    align-items: center;
+    gap: 24px;
+    margin: 8px 0 16px;
+    padding: 24px;
+    max-width: 480px;
+  }
+  .pix-panel.open { display: flex; }
+  .pix-panel img {
+    width: 240px;
+    height: 240px;
+    border-radius: var(--r-sm);
+    background: white;
+    padding: 10px;
+  }
+  .pix-panel .txt {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    line-height: 1.6;
+  }
+</style>
+
+<div class="space-bg" aria-hidden="true"></div>
+
+<%- include('partials/nav') %>
+
+<!-- ============ HERO ============ -->
+<section class="about-hero" data-screen-label="About — Hero">
+  <span class="eyebrow">About</span>
+  <h1>About</h1>
+  <p class="lede">The project and the person behind it.</p>
+</section>
+
+<!-- ============ THE PROJECT ============ -->
+<section class="about-section" data-screen-label="About — Project">
+  <h2>The project</h2>
+  <p>
+    NEO Radar is a browser-based orbital mechanics engine tracking 41,812 real
+    near-Earth asteroids. Built from first principles, it uses Newton-Raphson
+    Kepler solving, adaptive RK4 N-body integration, and Monte Carlo
+    uncertainty propagation, validated to 412 km RMS against JPL Horizons
+    over 50 years. Free and open source.
+  </p>
+</section>
+
+<!-- ============ ABOUT DAVI ============ -->
+<section class="about-section" data-screen-label="About — Davi">
+  <h2>About Davi</h2>
+  <p>
+    I'm Davi Martins, 17, from Barueri, Brazil. I love science, especially
+    astronomy, and I love programming just as much. I've been competing in
+    science olympiads since 2022, winning 6 medals, including
+    international. I'm working toward studying Computer Science at MIT.
+  </p>
+
+  <div class="press-list">
+    <a href="https://jornaldebarueri.com.br/cotidiano/aluno-de-barueri-cria-plataforma-inspirada-na-nasa-para-monitorar-asteroides" target="_blank" rel="noreferrer">
+      Jornal de Barueri
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><path d="M15 3h6v6"></path><path d="M10 14L21 3"></path></svg>
+    </a>
+    <a href="https://www.instagram.com/p/DbdiWfjEUQD/" target="_blank" rel="noreferrer">
+      StartSe
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><path d="M15 3h6v6"></path><path d="M10 14L21 3"></path></svg>
+    </a>
+  </div>
+</section>
+
+<!-- ============ SUPPORTERS ============ -->
+<section class="about-section" data-screen-label="About — Supporters">
+  <h2>Supporters</h2>
+
+  <% if (total > 0) { %>
+    <p class="supporters-summary">
+      <strong><%= supporters.length %></strong> <%= supporters.length === 1 ? 'person has' : 'people have' %> supported this project. Thank you.
+      <span style="color: var(--ink-4);">($<%= total.toFixed(2) %> USD total)</span>
+    </p>
+  <% } %>
+
+  <% if (supporters.length > 0) { %>
+    <div class="supporters-grid">
+      <% supporters.forEach(function(s) { %>
+        <div class="card supporter-card">
+          <div class="row">
+            <span class="name"><%= s.name %></span>
+            <span class="amount"><%= s.amount %> <%= s.currency %></span>
+          </div>
+          <% if (s.message) { %>
+            <div class="message">"<%= s.message %>"</div>
+          <% } %>
+        </div>
+      <% }) %>
+    </div>
+  <% } else { %>
+    <p class="supporters-empty">Be the first to support.</p>
+  <% } %>
+</section>
+
+<!-- ============ SUPPORT THIS PROJECT ============ -->
+<section class="about-section" data-screen-label="About — Support">
+  <h2>Support this project</h2>
+  <p>
+    NEO Radar is free and will always be free. If you'd like to support the
+    work, it goes toward two things: my SAT, TOEFL, and MIT application
+    costs, and a computer of my own. Right now I don't have one; I built
+    NEO Radar on my cousin's PC. With my own machine, NEO Radar gets
+    continuous updates and I can keep building more projects.
+  </p>
+
+  <div class="support-ctas">
+    <a href="https://ko-fi.com/daviazpen" target="_blank" rel="noreferrer" class="btn btn-cobalt">
+      ☕ Support on Ko-fi
+    </a>
+    <button type="button" id="pix-toggle" class="btn pix-toggle" aria-expanded="false" aria-controls="pix-panel">
+      PIX (Brazil)
+    </button>
+  </div>
+
+  <div class="card pix-panel" id="pix-panel">
+    <img src="/assets/pix-qr.png" width="240" height="240" alt="PIX QR code for NEO Radar donations">
+    <div class="txt">Scan with your bank app<br>to donate via PIX.</div>
+  </div>
+
+  <p class="support-note">
+    Payments via Ko-fi support international cards, PayPal and more. PIX is
+    for Brazilian supporters.
+  </p>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer" data-screen-label="About — Footer">
+  <div style="display:flex; align-items:center; gap: 12px;">
+    <svg width="20" height="20" viewBox="0 0 64 64" fill="none">
+      <g transform="translate(32 32) rotate(-18)">
+        <ellipse cx="0" cy="0" rx="26" ry="9" fill="none" stroke="currentColor" stroke-width="2.4"></ellipse>
+        <circle cx="18" cy="-5.4" r="2.2" fill="currentColor"></circle>
+        <circle cx="-15" cy="5.6" r="2.2" fill="currentColor"></circle>
+      </g>
+      <path d="M32 6 L34.6 30 L48 32 L34.6 34 L32 58 L29.4 34 L16 32 L29.4 30 Z" fill="currentColor"></path>
+    </svg>
+    <span class="credit">Built with JPL Horizons · NASA NeoWs</span>
+  </div>
+  <div style="display:flex; align-items:center; gap:12px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3);">
+    <span>Developed by Davi Martins</span>
+    <a href="https://github.com/azpeeen" target="_blank" rel="noreferrer" aria-label="GitHub" style="display:inline-flex; align-items:center; color:var(--ink-3); text-decoration:none; transition:color 160ms;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+      </svg>
+    </a>
+    <a href="https://www.linkedin.com/in/davi-martins-dos-santos-a0784a324/" target="_blank" rel="noreferrer" aria-label="LinkedIn" style="display:inline-flex; align-items:center; color:var(--ink-3); text-decoration:none; transition:color 160ms;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2" y="2" width="20" height="20" rx="3"/>
+        <path d="M7 11v6"/>
+        <circle cx="7" cy="7.5" r="1" fill="currentColor" stroke="none"/>
+        <path d="M11 11v6M11 14.5a2.5 2.5 0 0 1 5 0V17"/>
+      </svg>
+    </a>
+  </div>
+  <span class="credit">© 2026 NEO Radar</span>
+</footer>
+
+<script>
+(function () {
+  var btn   = document.getElementById('pix-toggle');
+  var panel = document.getElementById('pix-panel');
+  btn.addEventListener('click', function () {
+    var open = panel.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+})();
+</script>
+
+<%- include('partials/scripts') %>

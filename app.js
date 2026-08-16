@@ -8,6 +8,10 @@ const helmet  = require('helmet');
 
 const app = express();
 
+if (!process.env.KO_FI_TOKEN) {
+  console.warn('[Ko-fi] KO_FI_TOKEN not set — webhook will reject all requests');
+}
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -116,6 +120,7 @@ app.use('/',            require('./routes/index'));
 app.use('/radar',       require('./routes/radar'));
 app.use('/asteroid',    require('./routes/asteroid'));
 app.use('/methodology', require('./routes/methodology'));
+app.use('/about',       require('./routes/about'));
 app.use('/api',         require('./routes/api'));
 
 app.use((req, res) => {

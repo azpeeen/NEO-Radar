@@ -1,9 +1,13 @@
 'use strict';
 
 const { Router } = require('express');
+const express = require('express');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs   = require('fs');
 const https = require('https');
+
+const { addSupporter } = require('../src/data/supporters');
 
 const CACHE_DIR = path.join(__dirname, '..', '.cache');
 const JSON_PATH = path.join(CACHE_DIR, 'asteroids_mpc.json');
@@ -270,5 +274,66 @@ router.get('/asteroid/:designation/trajectory', (req, res) => {
 
   return res.json(result);
 });
+
+// ── POST /api/kofi/webhook ───────────────────────────────────────────────────
+// Ko-fi delivers a form-encoded body with a single "data" field containing a
+// JSON string. Verified by a shared verification_token (never logged, never
+// echoed back). Always responds 200 so Ko-fi doesn't retry-storm us — invalid
+// payloads are just dropped silently server-side.
+
+const KOFI_CURRENCIES = new Set(['USD', 'BRL', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']);
+
+function sanitizeText(str) {
+  return String(str).replace(/[<>&"']/g, '');
+}
+
+function validateKofiPayload(payload) {
+  const name = sanitizeText(payload.from_name || 'Anonymous').slice(0, 100).trim() || 'Anonymous';
+
+  const amount = parseFloat(payload.amount);
+  if (!isFinite(amount) || amount <= 0 || amount >= 10000) return null;
+
+  if (!KOFI_CURRENCIES.has(payload.currency)) return null;
+
+  const message = payload.message ? sanitizeText(payload.message).slice(0, 500) : '';
+
+  const kofiId = payload.kofi_transaction_id;
+  if (typeof kofiId !== 'string' || kofiId.length === 0 || kofiId.length > 100) return null;
+
+  return { name, amount, currency: payload.currency, message, kofi_id: kofiId };
+}
+
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: 'Too many requests',
+});
+
+router.post(
+  '/kofi/webhook',
+  webhookLimiter,
+  express.urlencoded({ extended: true }),
+  (req, res) => {
+    let payload;
+    try {
+      payload = JSON.parse(req.body?.data || '{}');
+    } catch {
+      return res.status(200).end();
+    }
+
+    const token = process.env.KO_FI_TOKEN;
+    if (!token || payload.verification_token !== token) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const supporter = validateKofiPayload(payload);
+    if (supporter) {
+      try { addSupporter(supporter); }
+      catch (err) { console.warn('[kofi] addSupporter error:', err.message); }
+    }
+
+    return res.status(200).end();
+  }
+);
 
 module.exports = router;
