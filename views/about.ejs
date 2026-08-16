@@ -146,7 +146,7 @@
     gap: 24px;
     margin: 8px 0 16px;
     padding: 24px;
-    max-width: 480px;
+    max-width: 560px;
   }
   .pix-panel.open { display: flex; }
   .pix-panel img {
@@ -155,12 +155,51 @@
     border-radius: var(--r-sm);
     background: white;
     padding: 10px;
+    flex-shrink: 0;
   }
   .pix-panel .txt {
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--ink-3);
     line-height: 1.6;
+  }
+  .pix-key-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .pix-key {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-2);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    padding: 7px 9px;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .pix-copy-btn {
+    flex-shrink: 0;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 160ms;
+  }
+  .pix-copy-btn:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.03); }
+  .pix-copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+  @media (max-width: 560px) {
+    .pix-panel { flex-direction: column; align-items: flex-start; }
   }
 </style>
 
@@ -261,7 +300,13 @@
 
   <div class="card pix-panel" id="pix-panel">
     <img src="/assets/pix-qr.png" width="240" height="240" alt="PIX QR code for NEO Radar donations">
-    <div class="txt">Scan with your bank app<br>to donate via PIX.</div>
+    <div class="txt">
+      Scan with your bank app<br>to donate via PIX.
+      <div class="pix-key-row">
+        <code class="pix-key" id="pix-key">9e573e39-1787-4dcc-b5c9-b91191edb48a</code>
+        <button type="button" id="pix-copy" class="pix-copy-btn">Copy</button>
+      </div>
+    </div>
   </div>
 
   <p class="support-note">
@@ -309,6 +354,43 @@
   btn.addEventListener('click', function () {
     var open = panel.classList.toggle('open');
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  var copyBtn = document.getElementById('pix-copy');
+  var pixKey  = document.getElementById('pix-key');
+
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  function showCopied() {
+    var original = copyBtn.textContent;
+    copyBtn.textContent = 'Copied!';
+    copyBtn.classList.add('copied');
+    setTimeout(function () {
+      copyBtn.textContent = original;
+      copyBtn.classList.remove('copied');
+    }, 1500);
+  }
+
+  copyBtn.addEventListener('click', function () {
+    var key = pixKey.textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(key).then(showCopied).catch(function () {
+        fallbackCopy(key);
+        showCopied();
+      });
+    } else {
+      fallbackCopy(key);
+      showCopied();
+    }
   });
 })();
 </script>
