@@ -19,6 +19,13 @@
 
 ---
 
+## 🗞️ Press & Recognition
+
+- **[Jornal de Barueri](https://jornaldebarueri.com.br/cotidiano/aluno-de-barueri-cria-plataforma-inspirada-na-nasa-para-monitorar-asteroides)** — "Aluno de Barueri cria plataforma inspirada na NASA para monitorar asteroides" (Jul 2026)
+- **[StartSe](https://www.instagram.com/p/DbdiWfjEUQD/)** — "Aos 17 anos, ele criou uma ferramenta com cálculo igual ao da NASA e já chamou atenção nos EUA" · 746k followers (Jul 2026)
+
+---
+
 ## Table of Contents
 
 - [What is NEO Radar?](#what-is-neo-radar)
@@ -40,6 +47,8 @@ NEO Radar is a heliocentric orbital simulation engine that tracks real Near-Eart
 The physics layer solves Kepler's equation via Newton-Raphson, integrates full N-body gravitational dynamics with RK4 and adaptive timestep, and propagates position uncertainty using Monte Carlo sampling of the JPL covariance matrix. The result is a 412 km RMS position deviation from JPL ground truth over a 50-year window — orders of magnitude tighter than simplified models.
 
 Built as a flagship technical portfolio project. The methodology page documents every design decision in detail.
+
+The catalog spans **47 high-fidelity NEOs**, the full **41,812-object MPC catalog**, **20 moons** with real orbital mechanics, **2 dwarf planets** (Ceres, Pluto), and **5 comets** with particle-based tails — all rendered with **1,585 real 3D shape models** sourced from NASA's Virtual Telescope for Asteroid Deflection (VTAD) database and community datasets.
 
 ---
 
@@ -125,6 +134,18 @@ Full Minor Planet Center catalog rendered as a background layer with real Kepler
 **🎯 Full Physical Dossier**  
 Click any object — from either the 47 high-fidelity objects or the 41,812 MPC catalog — for an instant dossier: Keplerian elements, MOID, Tisserand parameter, diameter estimates (3 albedo scenarios), impact energy in Mt TNT, Monte Carlo close-approach uncertainty (N=64), JPL Small-Body Database enrichment, and miss-distance context (LEO → GEO → Moon).
 
+**🎥 Free-Orbit Perspective Camera**  
+Drag to orbit, shift+drag to pan, scroll to zoom — same feel as NASA's Eyes on Asteroids.
+
+**🎬 Cinematic Focus Mode**  
+Camera follow, auto-rotate, and a smooth dolly transition when focusing any object.
+
+**🌙 20 Moons**  
+Real orbital mechanics and 3D models — Phobos, Io, Mimas, Enceladus, and others.
+
+**☄️ 5 Comets**  
+Particle-based dual tail simulation (dust + ion) with gradual activation by solar distance.
+
 </td>
 <td width="50%">
 
@@ -145,6 +166,15 @@ Hover any planet to see its heliocentric distance (AU), orbital period, and curr
 
 **🪐 Jupiter Perturbation Toggle**  
 Enable or disable Jupiter's gravitational pull in real time. The uncertainty cone widens visibly on Jupiter-flyby trajectories — the gravitational keyhole effect, shown honestly.
+
+**🪐 Ceres & Pluto**  
+Dwarf planets with real orbital elements and 3D models.
+
+**🗿 1,585 3D Shape Models**  
+Asteroids, moons, dwarf planets, and comets — sourced from NASA VTAD and community datasets.
+
+**📜 MIT License**  
+Open source and free to use, modify, and learn from.
 
 </td>
 </tr>
