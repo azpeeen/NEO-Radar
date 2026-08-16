@@ -14,7 +14,6 @@
 
 [**🔭 Open Radar →**](https://neoradar.space/) &nbsp;·&nbsp; [Methodology](https://neoradar.space/methodology) &nbsp;·&nbsp; [About the author](#author)
 
-![NEO Radar Hero](public/assets/asteroid-poster.png)
 
 </div>
 
