@@ -27,6 +27,83 @@ app.use(helmet({
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// SEO routes — registered before express.static so they take priority over
+// the (stale) public/robots.txt and public/sitemap.xml files.
+app.get('/sitemap.xml', (req, res) => {
+  const pages = [
+    { url: '/',              changefreq: 'weekly',  priority: '1.0' },
+    { url: '/radar',         changefreq: 'daily',   priority: '0.9' },
+    { url: '/asteroid/99942', changefreq: 'weekly',  priority: '0.8' },
+    { url: '/methodology',   changefreq: 'monthly', priority: '0.7' },
+  ];
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${pages.map(p => `  <url>
+    <loc>https://neoradar.space${p.url}</loc>
+    <changefreq>${p.changefreq}</changefreq>
+    <priority>${p.priority}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+
+  res.header('Content-Type', 'application/xml');
+  res.send(xml);
+});
+
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(
+`User-agent: *
+Allow: /
+
+Sitemap: https://neoradar.space/sitemap.xml`
+  );
+});
+
+app.get('/llms.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(
+`# NEO Radar
+
+> Real orbital mechanics engine for Near-Earth Objects.
+> Built by Davi Martins, 17, from Barueri, Brazil.
+
+## What is NEO Radar
+
+NEO Radar is a browser-based orbital mechanics engine that
+tracks 41,812 real near-Earth asteroids from the Minor
+Planet Center catalog. It uses the same mathematical basis
+employed by NASA to calculate orbital trajectories and
+close approaches.
+
+## Key facts
+
+- 41,812 asteroids from the MPC catalog
+- 47 high-fidelity objects with full RK4 N-body dynamics
+- 20 moons, 2 dwarf planets, 5 comets
+- 1,585 3D shape models
+- Newton-Raphson solver for Kepler's equation (ε < 1e-12)
+- Adaptive RK4 N-body integration
+- Monte Carlo uncertainty propagation
+- 412 km RMS validation against JPL Horizons over 50 years
+- Free and open source (MIT License)
+
+## URLs
+
+- Live site: https://neoradar.space
+- Radar: https://neoradar.space/radar
+- Catalog: https://neoradar.space/asteroid/99942
+- Methodology: https://neoradar.space/methodology
+- GitHub: https://github.com/azpeeen/NEO-Radar
+
+## Author
+
+Davi Martins — full-stack developer, co-founder of Inova,
+olympiad medalist (6 medals including international).
+Contact: davimartins.2611@gmail.com`
+  );
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // The Three.js renderer lives in src/renderer/ (architecture rule: renderer
