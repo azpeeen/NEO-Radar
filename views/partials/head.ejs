@@ -5,16 +5,60 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 
 <title><%= typeof title !== 'undefined' ? title : 'NEO Radar — Real orbital mechanics for Near-Earth Objects' %></title>
-<meta name="description" content="Real orbital-mechanics engine for tracking Near-Earth Objects. Heliocentric N-body simulation with Newton-Raphson Kepler solver, RK4 adaptive integrator, and live perturbation from Earth, Jupiter, Saturn, Uranus, and Neptune.">
+<meta name="description" content="Track 41,812 real asteroids near Earth in real time. Free interactive solar system map with orbital mechanics, 3D models and close approach alerts.">
+<meta name="keywords" content="
+asteroid tracker, asteroid map, near earth asteroids,
+space map, solar system map, asteroid watch, meteor tracker,
+asteroids near earth today, asteroid 2029, apophis 2029,
+apophis asteroid tracker, planetary radar, asteroid radar,
+real time asteroids, asteroid orbit, space tracker,
+rastreador de asteroides, radar de asteroides, mapa do sistema solar,
+asteroides próximos da Terra, asteroide apophis,
+asteroides hoje, sistema solar ao vivo,
+rastreador de asteroides en tiempo real,
+mapa sistema solar, asteroides cerca de la tierra,
+asteroide apophis 2029, seguimiento asteroides,
+Asteroid-Tracker, Sonnensystem Karte, Asteroiden Radar,
+suivi astéroïdes, carte système solaire,
+追踪小行星, 太阳系地图, 近地小行星
+">
 <meta name="robots" content="index,follow">
 <% if (typeof page !== 'undefined' && page === 'index') { %>
 <meta name="google-site-verification" content="sz7-zvwl8ngg02ls8Pfyvo0Ksn1oeIaGqQ88Y5zPt6Y" />
 <% } %>
 
+<link rel="alternate" hreflang="en" href="https://neoradar.space/" />
+<link rel="alternate" hreflang="pt" href="https://neoradar.space/" />
+<link rel="alternate" hreflang="es" href="https://neoradar.space/" />
+<link rel="alternate" hreflang="x-default" href="https://neoradar.space/" />
+
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@type": "WebApplication",
+	"name": "NEO Radar",
+	"url": "https://neoradar.space",
+	"description": "Real-time asteroid tracker monitoring 41,812 near-Earth objects with orbital mechanics simulation.",
+	"applicationCategory": "EducationalApplication",
+	"operatingSystem": "Web Browser",
+	"offers": {
+		"@type": "Offer",
+		"price": "0",
+		"priceCurrency": "USD"
+	},
+	"author": {
+		"@type": "Person",
+		"name": "Davi Martins",
+		"url": "https://neoradar.space/about"
+	},
+	"keywords": "asteroid tracker, solar system map, near earth asteroids, asteroid radar, planetary radar"
+}
+</script>
+
 <!-- Open Graph -->
 <meta property="og:type"        content="website">
-<meta property="og:title"       content="NEO Radar — Real orbital mechanics for Near-Earth Objects">
-<meta property="og:description" content="141 asteroids tracked this month with real N-body physics. Newton-Raphson Kepler solver, RK4 integrator, JPL Horizons data.">
+<meta property="og:title"       content="NEO Radar — Track 41,812 Real Asteroids Near Earth">
+<meta property="og:description" content="Free real-time asteroid tracker with orbital mechanics, 3D solar system map, and close approach alerts. Built from first principles.">
 <meta property="og:image"       content="https://neo-radar.onrender.com/assets/og-image.png">
 <meta property="og:image:type"  content="image/png">
 <meta property="og:image:width" content="1200">
@@ -23,8 +67,8 @@
 
 <!-- Twitter Card -->
 <meta name="twitter:card"        content="summary_large_image">
-<meta name="twitter:title"       content="NEO Radar — Real orbital mechanics for Near-Earth Objects">
-<meta name="twitter:description" content="141 asteroids tracked this month with real N-body physics. Newton-Raphson Kepler solver, RK4 integrator, JPL Horizons data.">
+<meta name="twitter:title"       content="NEO Radar — Real-Time Asteroid Tracker">
+<meta name="twitter:description" content="Track 41,812 real asteroids near Earth. Free solar system map with real orbital physics.">
 <meta name="twitter:image"       content="https://neo-radar.onrender.com/assets/og-image.png">
 
 <link rel="icon"       href="/assets/logo.svg" type="image/svg+xml">
