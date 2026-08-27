@@ -18,12 +18,14 @@
     "better-sqlite3": "^11.10.0"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "dotenv": "^16.4.5",
     "ejs": "^3.1.10",
     "express": "^4.22.2",
     "express-rate-limit": "^8.6.2",
     "helmet": "^8.2.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "sharp": "^0.35.4"
   },
   "repository": {
     "type": "git",

@@ -941,7 +941,7 @@ class ThreeJSRenderer {
         normalScale: new THREE.Vector2(2.0, 2.0),
       });
       function load(kind, assign) {
-        self._texLoader.load(self._textureBase + 'rock/' + id + '_' + kind + '.png',
+        self._texLoader.load(self._textureBase + 'rock/' + id + '_' + kind + '.jpg',
           function (tex) {
             tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
             tex.anisotropy = Math.min(4, self.renderer.capabilities.getMaxAnisotropy());

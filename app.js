@@ -5,8 +5,11 @@ require('dotenv').config();
 const express = require('express');
 const path    = require('path');
 const helmet  = require('helmet');
+const compression = require('compression');
 
 const app = express();
+
+app.use(compression());
 
 if (!process.env.KO_FI_TOKEN) {
   console.warn('[Ko-fi] KO_FI_TOKEN not set — webhook will reject all requests');
@@ -108,7 +111,19 @@ Contact: davimartins.2611@gmail.com`
   );
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// 30-day immutable cache for static assets that never change without a new
+// deploy (GLB/JPG/PNG/MP4/WOFF2) — safe for a CDN in front of this origin.
+// /api/* responses never pass through here since no static file matches
+// those routes, so they stay uncached by construction.
+const CACHEABLE_EXT = new Set(['.glb', '.jpg', '.jpeg', '.png', '.mp4', '.woff2']);
+
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath) {
+    if (CACHEABLE_EXT.has(path.extname(filePath).toLowerCase())) {
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+    }
+  },
+}));
 
 // The Three.js renderer lives in src/renderer/ (architecture rule: renderer
 // code stays in the renderer layer) but is served as a classic script here.
