@@ -34,6 +34,31 @@ app.use(helmet({
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// Cache busting for our own JS/CSS: views call asset('/js/x.js') and get
+// '/js/x.js?v=<content hash>'. A deploy that changes a file changes its URL,
+// so browsers and any CDN/host cache in front of the origin can never keep
+// serving the previous version. Unchanged files keep their URL (and cache).
+const crypto = require('crypto');
+const fs     = require('fs');
+const ASSET_FILES = {
+  '/js/renderer3d.js': path.join(__dirname, 'src', 'renderer', 'threejs.js'),
+};
+const _assetCache = new Map();
+app.locals.asset = function asset(url) {
+  const file = ASSET_FILES[url] || path.join(__dirname, 'public', url);
+  try {
+    const st  = fs.statSync(file);
+    const hit = _assetCache.get(url);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.out;
+    const v   = crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex').slice(0, 10);
+    const out = url + '?v=' + v;
+    _assetCache.set(url, { mtimeMs: st.mtimeMs, size: st.size, out });
+    return out;
+  } catch (e) {
+    return url;                       // missing file: fall back to the bare URL
+  }
+};
+
 // SEO routes — registered before express.static so they take priority over
 // the (stale) public/robots.txt and public/sitemap.xml files.
 app.get('/sitemap.xml', (req, res) => {
