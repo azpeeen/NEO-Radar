@@ -936,8 +936,8 @@
 <!-- GLTFLoader served locally (CSP allows 'self' + cdnjs only; cdnjs lacks examples/).
      Fetched by scripts/downloadAsteroidModels.js — if absent, the renderer
      detects the missing THREE.GLTFLoader and uses procedural meshes only. -->
-<script src="/js/GLTFLoader.js"></script>
-<script src="/js/renderer3d.js"></script>
+<script src="<%= asset('/js/GLTFLoader.js') %>"></script>
+<script src="<%= asset('/js/renderer3d.js') %>"></script>
 
 <script>
 // ─── Load screen controller ──────────────────────────────────────────────────
