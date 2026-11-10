@@ -1177,41 +1177,48 @@ function computeSecularRates(ast) {
   return { dperi_dt: rate, dnode_dt: -rate };
 }
 
-// ─── Spatial hash for O(1) hit detection on 41k asteroids ────────────────────
-const _GRID = 40; // px per cell
-var _mpcVisible = []; // [{ast, sx, sy}, ...] rebuilt each frame
-var _mpcGrid = new Map();
-
-function _buildGrid() {
-  _mpcGrid = new Map();
-  for (var gi = 0; gi < _mpcVisible.length; gi++) {
-    var e = _mpcVisible[gi];
-    var gx = (e.sx / _GRID) | 0;
-    var gy = (e.sy / _GRID) | 0;
-    var key = gx * 100000 + gy;
-    var bucket = _mpcGrid.get(key);
-    if (!bucket) { bucket = []; _mpcGrid.set(key, bucket); }
-    bucket.push(e);
-  }
-}
+// ─── Hit detection on 41k asteroids (lazy) ───────────────────────────────────
+// Nothing is projected or bucketed per frame. Hit-testing only runs when the
+// pointer moves or clicks, and scans the positions the frame loop already wrote
+// into _mpcPositions, projecting inline through _vp with zero allocations
+// (same maths as ws(), including the 4px viewport margin of the old cull).
+var _mpcTmp = { x: 0, y: 0, z: 0 };
 
 function _mpcHit(mx, my) {
-  if (!_mpcGrid.size) return null;
-  var gx = (mx / _GRID) | 0;
-  var gy = (my / _GRID) | 0;
-  var best = null, bestD2 = 14 * 14; // 14px hit radius
-  for (var dx = -1; dx <= 1; dx++) {
-    for (var dy = -1; dy <= 1; dy++) {
-      var bucket = _mpcGrid.get((gx + dx) * 100000 + (gy + dy));
-      if (!bucket) continue;
-      for (var bi = 0; bi < bucket.length; bi++) {
-        var be = bucket[bi];
-        var d2 = (be.sx - mx) * (be.sx - mx) + (be.sy - my) * (be.sy - my);
-        if (d2 < bestD2) { bestD2 = d2; best = be; }
+  if (!state.showMPC || !_mpcLoaded || !_mpcPositions) return null;
+  var e = _vp;
+  var e0 = e[0], e1 = e[1], e3 = e[3], e4 = e[4], e5 = e[5], e7 = e[7],
+      e8 = e[8], e9 = e[9], e11 = e[11], e12 = e[12], e13 = e[13], e15 = e[15];
+  var P = _mpcPositions, N = _mpcAsteroids.length;
+  var best = -1, bestD2 = 14 * 14, bestX = 0, bestY = 0; // 14px hit radius
+  for (var i = 0, i3 = 0; i < N; i++, i3 += 3) {
+    var x = P[i3], y = P[i3 + 1], z = P[i3 + 2];
+    var cw = e3 * x + e7 * y + e11 * z + e15;
+    if (cw <= 0) continue;                                   // behind the camera
+    var sx = ((e0 * x + e4 * y + e8 * z + e12) / cw + 1) * 0.5 * W;
+    var dx = sx - mx;
+    if (dx * dx >= bestD2) continue;                         // cheap reject on x
+    var sy = (1 - (e1 * x + e5 * y + e9 * z + e13) / cw) * 0.5 * H;
+    if (sx < -4 || sx > W + 4 || sy < -4 || sy > H + 4) continue;
+    var dy = sy - my;
+    var d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) { bestD2 = d2; best = i; bestX = sx; bestY = sy; }
+  }
+  // The promoted/focused asteroid is parked at 1e6 in the buffer (it has its own
+  // mesh) but must stay pickable at its real position.
+  if (_promoAstRef) {
+    var pp = getMPCPosition(_promoAstRef, _SIM_EPOCH_JD + state.simTime, _mpcTmp);
+    var pcw = e3 * pp.x + e7 * pp.y + e11 * pp.z + e15;
+    if (pcw > 0) {
+      var psx = ((e0 * pp.x + e4 * pp.y + e8 * pp.z + e12) / pcw + 1) * 0.5 * W;
+      var psy = (1 - (e1 * pp.x + e5 * pp.y + e9 * pp.z + e13) / pcw) * 0.5 * H;
+      if (psx >= -4 && psx <= W + 4 && psy >= -4 && psy <= H + 4) {
+        var pd2 = (psx - mx) * (psx - mx) + (psy - my) * (psy - my);
+        if (pd2 < bestD2) return { ast: _promoAstRef, sx: psx, sy: psy };
       }
     }
   }
-  return best; // { ast, sx, sy } or null
+  return best < 0 ? null : { ast: _mpcAsteroids[best], sx: bestX, sy: bestY };
 }
 
 // ─── Promoted object state (Layer 3 — N-body on click) ───────────────────────
@@ -1273,7 +1280,8 @@ async function loadMPCAsteroids() {
   _loader.stage('catalog', 1);   // success or failure: never block the reveal
 }
 
-function getMPCPosition(ast, currentJD) {
+// `out` (optional) is reused by hot loops to avoid one allocation per asteroid.
+function getMPCPosition(ast, currentJD, out) {
   var dt = currentJD - ast.epoch_jd;
   var n  = 0.9856076686 / Math.pow(ast.a, 1.5); // deg/day
   var M  = (ast.M + n * dt) % 360;
@@ -1307,7 +1315,9 @@ function getMPCPosition(ast, currentJD) {
          + (-sinN * sinW + cosN * cosW * cosI) * y_orb;
   var z = (sinW * sinI) * x_orb + (cosW * sinI) * y_orb;
 
-  return { x, y, z };
+  if (!out) out = { x: 0, y: 0, z: 0 };
+  out.x = x; out.y = y; out.z = z;
+  return out;
 }
 
 // ─── MPC point-cloud bridge ──────────────────────────────────────────────────
@@ -1335,12 +1345,9 @@ function updateMPCFrame() {
   if (!state.showMPC || !_mpcLoaded || !_mpcPositions) return false;
   const currentJD = _SIM_EPOCH_JD + state.simTime;
 
-  // Reset per-frame visibility list (used for spatial hash + hit test)
-  _mpcVisible = [];
-
   for (var mi = 0; mi < _mpcAsteroids.length; mi++) {
     const ast = _mpcAsteroids[mi];
-    const pos = getMPCPosition(ast, currentJD);
+    const pos = getMPCPosition(ast, currentJD, _mpcTmp);
     const i3  = mi * 3;
 
     // Promoted/focused asteroid is rendered as its own mesh — park its point
@@ -1350,16 +1357,7 @@ function updateMPCFrame() {
       _mpcPositions[i3] = pos.x; _mpcPositions[i3+1] = pos.y; _mpcPositions[i3+2] = pos.z;
     }
 
-    // Viewport culling now only matters for hit detection — GPU clips the
-    // rest (ws() null = behind the camera)
-    const s = ws(pos.x, pos.y, pos.z);
-    if (!s || s.x < -4 || s.x > W + 4 || s.y < -4 || s.y > H + 4) continue;
-
-    _mpcVisible.push({ ast, sx: s.x, sy: s.y });
   }
-
-  // Rebuild spatial hash from this frame's visible set
-  _buildGrid();
   return true;
 }
 
