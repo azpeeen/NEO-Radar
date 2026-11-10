@@ -924,6 +924,527 @@ class CometTail {
   }
 }
 
+/* ── Magnetospheres ──────────────────────────────────────────────────────── */
+// Focus-mode overlay for bodies with an intrinsic magnetic field. Two layers,
+// both in REAL scale (units = body radii, never inflated by the min-px floor):
+//
+//   1. Field lines of the body's dipole, traced numerically through
+//      B ∝ [3(m̂·r̂)r̂ − m̂] / r³, tilted and offset as published. They rotate
+//      with the body.
+//   2. The magnetopause: the empirical surface r(θ) = r0·(2/(1+cos θ))^α of
+//      Shue et al. (1997, JGR 102, 9497), θ measured from the Sun direction,
+//      r0 = observed subsolar standoff distance.
+//
+// What this is NOT: a model of the compressed dayside / stretched nightside
+// field (Tsyganenko-class). The lines are pure dipole and are only drawn out
+// to `shells`' last value, always inside the magnetopause.
+//
+// Sources (read 2026-11-10):
+//   [F] NASA NSSDCA planetary fact sheets: dipole strength, tilt, offset
+//   [W] Wikipedia "Magnetopause", table of observed standoff distances
+//   [M] Winslow et al. 2013, JGR 118, 2213: Mercury r0 = 1.45 (1.35–1.55),
+//       α = 0.5. Wicht & Heyner 2017 (arXiv:1701.05060): tilt < 0.8°,
+//       dipole 480 km (0.2 radii) north of centre, axial dipole 190 nT
+//   [E] Lu et al. 2011 as quoted in arXiv:1709.01407: Earth α ≈ 0.55
+//   [J] Wikipedia "Magnetosphere of Jupiter": magnetopause 45–100 radii,
+//       tail up to 7000 radii, dipolar inside ~10 radii, polarity opposite
+//       to Earth's
+//   [S] Wikipedia "Magnetosphere of Saturn": r0 ≈ 22 (16–27), dipole 0.037
+//       radii north, mostly dipolar inside ~6 radii, polarity as Jupiter.
+//       Kanani et al. 2010, JGR 115, A06207: α = 0.73
+//   [U] Wikipedia "Uranus" / "Neptune", magnetosphere sections
+//   [G] Wikipedia "Ganymede (moon)": 719 nT at the equator, moment tilted
+//       176° from the rotation axis, ambient Jovian field ≈ 120 nT
+//
+// tilt  = angle between the rotation axis (north) and the magnetic MOMENT, in
+//         degrees. Earth's moment points south: 180 − 9.35 ([F], geocentric
+//         dipole at 80.65° N).
+// polarityKnown = false where none of the sources state the sense of the
+//         moment (Mercury, Uranus, Neptune). The lines are then drawn
+//         without the direction-of-field animation instead of guessing it.
+// offN  = dipole centre offset along the rotation axis, body radii (+ north).
+//         Earth (0.076), Jupiter (0.119) and Neptune (0.485) have published
+//         offsets too [F], but with no direction in these sources: not applied.
+// alpha = magnetopause flaring. alphaAssumed = no published fit found for
+//         that planet in these sources, a generic 0.6 is used.
+// eqField = equatorial surface field of the dipole term, µT ([F]: 1 G = 100 µT).
+var MAGNETOSPHERES = {
+  mercury: {
+    tilt: 0, tiltShown: '< 0.8°', polarityKnown: false, offN: 0.2,
+    eqField: 0.19, r0: 1.45, r0lo: 1.35, r0hi: 1.55, alpha: 0.5, tail: 5,
+    shells: [1.08, 1.16, 1.23, 1.30], lon: 12,
+    tailNote: 'REAL TAIL: 10–100 RADII',
+    note: 'The planet fills most of its own magnetosphere. Dipole sits 480 km north of the centre.',
+  },
+  earth: {
+    tilt: 170.65, tiltShown: '9.4°', polarityKnown: true, offN: 0,
+    eqField: 30.6, r0: 10, r0lo: 8, r0hi: 12, alpha: 0.55, tail: 3.5,
+    shells: [1.5, 2, 3, 4, 5.5, 7, 8.5], lon: 10,
+    tailNote: null,
+    note: 'Field lines leave the southern hemisphere and enter the northern one.',
+  },
+  jupiter: {
+    tilt: 9.4, polarityKnown: true, offN: 0,
+    eqField: 430, r0: 75, r0lo: 45, r0hi: 100, alpha: 0.6, alphaAssumed: true, tail: 3,
+    shells: [2, 3, 4.5, 6, 8, 11, 15], lon: 10,
+    tailNote: 'REAL TAIL: UP TO 7000 RADII, PAST SATURN\'S ORBIT',
+    note: 'Polarity opposite to Earth\'s. Beyond ~10 radii the real field stretches into a disc; lines shown are pure dipole.',
+  },
+  saturn: {
+    tilt: 0, tiltShown: '< 0.5°', polarityKnown: true, offN: 0.038,
+    eqField: 21.5, r0: 22, r0lo: 16, r0hi: 27, alpha: 0.73, tail: 3,
+    shells: [1.5, 2.2, 3, 4, 5.5, 7, 9], lon: 10,
+    tailNote: 'REAL TAIL: HUNDREDS OF RADII',
+    note: 'Almost perfectly aligned with the spin axis. Polarity opposite to Earth\'s. Mostly dipolar inside ~6 radii.',
+  },
+  uranus: {
+    tilt: 58.6, polarityKnown: false, offN: -0.33,
+    eqField: 22.8, r0: 18, r0lo: null, r0hi: null, alpha: 0.6, alphaAssumed: true, tail: 3,
+    shells: [2, 3, 4.5, 6.5, 9, 12, 16], lon: 10,
+    tailNote: 'REAL TAIL: TWISTED INTO A CORKSCREW BY THE ROTATION',
+    note: 'Dipole tilted 59° and shifted a third of a radius off-centre. Strong quadrupole: a dipole is a rough sketch here.',
+  },
+  neptune: {
+    tilt: 46.9, polarityKnown: false, offN: 0,
+    eqField: 14.2, r0: 24.5, r0lo: 23, r0hi: 26.5, alpha: 0.6, alphaAssumed: true, tail: 3,
+    shells: [2, 3, 4.5, 6.5, 9, 13, 18, 22], lon: 10,
+    tailNote: 'REAL TAIL: AT LEAST 72 RADII',
+    note: 'Dipole tilted 47° and offset ~0.5 radii (direction not modelled). A dipole is a rough sketch here.',
+  },
+  // Ganymede sits INSIDE Jupiter's magnetosphere: no solar wind, no bullet-
+  // shaped magnetopause. The field drawn is its dipole plus Jupiter's local
+  // field treated as uniform and parallel to Ganymede's moment (ext = 120/719).
+  // That superposition has a neutral ring at (719/120)^(1/3) = 1.82 radii and
+  // puts the last closed field line at 29.2° latitude, matching the published
+  // "closed below 30°" [G]: a check of the model, not an input to it.
+  ganymede: {
+    tilt: 176, polarityKnown: true, offN: 0,
+    eqField: 0.719, ext: 120 / 719, noShell: true,
+    r0: 1.82, tail: 0,
+    closed: [1.12, 1.25, 1.38, 1.52, 1.66, 1.77], openColat: [10, 22, 34, 46, 56], rOut: 3.6, lon: 12,
+    tailNote: null,
+    note: 'The only moon with its own magnetosphere, a bubble inside Jupiter\'s. Polar lines are open: they connect to Jupiter.',
+  },
+};
+
+// Bodies with no intrinsic global field: the toggle explains instead of drawing
+var NO_MAGNETOSPHERE = {
+  venus: 'NO INTRINSIC GLOBAL FIELD. The solar wind is held off by the ionosphere instead (induced magnetosphere).',
+  mars:  'NO GLOBAL DIPOLE TODAY. Only patches of magnetised crust remain.',
+  moon:  'NO GLOBAL FIELD. Only weak patches of magnetised crust.',
+  _moon: 'NO INTRINSIC FIELD KNOWN. Ganymede is the only moon known to have its own magnetosphere.',
+};
+
+// Fastest the field cage may visibly turn (rad per real second). In live mode
+// it tracks the planet's true rotation; under time acceleration a 59°-tilted
+// dipole spinning 20× a second would only strobe.
+var MAG_SPIN_CAP = 0.5;
+
+// Dipole (+ optional uniform field along the moment) in the dipole frame:
+// moment along +Z, lengths in body radii, field in units of the equatorial
+// surface field. At the magnetic equator B = −ẑ/r³ (+ ext·ẑ).
+function _magField(ext, p, out) {
+  var x = p[0], y = p[1], z = p[2];
+  var r2 = x * x + y * y + z * z, r5 = r2 * r2 * Math.sqrt(r2);
+  out[0] = 3 * z * x / r5;
+  out[1] = 3 * z * y / r5;
+  out[2] = (3 * z * z - r2) / r5 + ext;
+  return out;
+}
+
+// One field line through `seed`, followed along +B (sign 1) or −B (sign −1)
+// with RK4 until it enters the body, leaves the rOut sphere or runs out of
+// steps. `body` = body centre in the dipole frame (non-zero for offset dipoles).
+function _magTrace(ext, seed, sign, body, rOut, maxSteps) {
+  var pts = [seed[0], seed[1], seed[2]];
+  var p = [seed[0], seed[1], seed[2]];
+  var k1 = [0, 0, 0], k2 = [0, 0, 0], k3 = [0, 0, 0], k4 = [0, 0, 0], q = [0, 0, 0];
+  function dir(at, out) {
+    _magField(ext, at, out);
+    var n = sign / (Math.hypot(out[0], out[1], out[2]) || 1e-12);
+    out[0] *= n; out[1] *= n; out[2] *= n;
+    return out;
+  }
+  var open = false;
+  for (var s = 0; s < maxSteps; s++) {
+    var h = Math.max(0.004, 0.03 * Math.hypot(p[0], p[1], p[2]));
+    dir(p, k1);
+    q[0] = p[0] + k1[0] * h / 2; q[1] = p[1] + k1[1] * h / 2; q[2] = p[2] + k1[2] * h / 2;
+    dir(q, k2);
+    q[0] = p[0] + k2[0] * h / 2; q[1] = p[1] + k2[1] * h / 2; q[2] = p[2] + k2[2] * h / 2;
+    dir(q, k3);
+    q[0] = p[0] + k3[0] * h; q[1] = p[1] + k3[1] * h; q[2] = p[2] + k3[2] * h;
+    dir(q, k4);
+    p[0] += h / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]);
+    p[1] += h / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+    p[2] += h / 6 * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]);
+    pts.push(p[0], p[1], p[2]);
+    var bx = p[0] - body[0], by = p[1] - body[1], bz = p[2] - body[2];
+    if (bx * bx + by * by + bz * bz < 1) break;          // inside the body (it occludes the stub)
+    if (p[0] * p[0] + p[1] * p[1] + p[2] * p[2] > rOut * rOut) { open = true; break; }
+  }
+  return { pts: pts, open: open };
+}
+
+function _magReverse(pts) {
+  var out = new Array(pts.length);
+  for (var i = 0, n = pts.length / 3; i < n; i++) {
+    out[i * 3] = pts[(n - 1 - i) * 3];
+    out[i * 3 + 1] = pts[(n - 1 - i) * 3 + 1];
+    out[i * 3 + 2] = pts[(n - 1 - i) * 3 + 2];
+  }
+  return out;
+}
+
+function _magSmooth(a, b, x) {
+  var t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+// Append a polyline (ordered along +B) to a LineSegments accumulator.
+// aT = normalised arc length (drives the flow animation), aFade = per-vertex
+// alpha: fadeStart / fadeEnd soften an open end, fadeFn overrides both.
+function _magAppend(acc, pts, fadeStart, fadeEnd, fadeFn) {
+  var n = pts.length / 3;
+  if (n < 2) return;
+  var len = new Array(n), total = 0;
+  len[0] = 0;
+  for (var i = 1; i < n; i++) {
+    total += Math.hypot(pts[i * 3] - pts[i * 3 - 3], pts[i * 3 + 1] - pts[i * 3 - 2], pts[i * 3 + 2] - pts[i * 3 - 1]);
+    len[i] = total;
+  }
+  if (!(total > 0)) return;
+  function push(j) {
+    var t = len[j] / total, f = 1;
+    if (fadeFn) f = fadeFn(pts[j * 3], pts[j * 3 + 1], pts[j * 3 + 2]);
+    else {
+      if (fadeStart) f *= _magSmooth(0, 0.4, t);
+      if (fadeEnd) f *= 1 - _magSmooth(0.6, 1, t);
+    }
+    acc.pos.push(pts[j * 3], pts[j * 3 + 1], pts[j * 3 + 2]);
+    acc.t.push(t);
+    acc.fade.push(f);
+  }
+  for (var k = 0; k < n - 1; k++) { push(k); push(k + 1); }
+}
+
+function _magLinesGeometry(acc) {
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(acc.pos), 3));
+  geo.setAttribute('aT', new THREE.BufferAttribute(new Float32Array(acc.t), 1));
+  geo.setAttribute('aFade', new THREE.BufferAttribute(new Float32Array(acc.fade), 1));
+  return geo;
+}
+
+// Field lines of a (possibly offset) dipole: one line per L-shell and
+// longitude, seeded on the magnetic equator and traced to both footpoints.
+function _magBuildDipole(def) {
+  var acc = { pos: [], t: [], fade: [] };
+  var tau = def.tilt * Math.PI / 180, off = def.offN || 0;
+  // Body centre seen from the dipole centre, in the dipole frame (= body frame
+  // rotated about X by the tilt; the offset lies along the body's Z).
+  var body = [0, -off * Math.sin(tau), -off * Math.cos(tau)];
+  var rOut = def.shells[def.shells.length - 1] * 1.5 + 2;
+  for (var s = 0; s < def.shells.length; s++) {
+    var L = def.shells[s];
+    for (var k = 0; k < def.lon; k++) {
+      var phi = 2 * Math.PI * (k + (s % 2) * 0.5) / def.lon;      // stagger alternate shells
+      var seed = [L * Math.cos(phi), L * Math.sin(phi), 0];
+      var south = _magTrace(0, seed, 1, body, rOut, 4000);         // +B: toward the −moment pole
+      var north = _magTrace(0, seed, -1, body, rOut, 4000);
+      _magAppend(acc, _magReverse(north.pts).concat(south.pts.slice(3)), false, false);
+    }
+  }
+  return _magLinesGeometry(acc);
+}
+
+// Ganymede: dipole + uniform Jovian field. Closed lines are seeded on the
+// magnetic equator inside the neutral ring; open ones on the surface,
+// poleward of the last closed line, and traced outward until rOut.
+function _magBuildEmbedded(def) {
+  var acc = { pos: [], t: [], fade: [] };
+  var body = [0, 0, 0], ext = def.ext;
+  var k, phi;
+  for (var s = 0; s < def.closed.length; s++) {
+    for (k = 0; k < def.lon; k++) {
+      phi = 2 * Math.PI * (k + (s % 2) * 0.5) / def.lon;
+      var seed = [def.closed[s] * Math.cos(phi), def.closed[s] * Math.sin(phi), 0];
+      var a = _magTrace(ext, seed, 1, body, def.rOut, 4000);
+      var b = _magTrace(ext, seed, -1, body, def.rOut, 4000);
+      _magAppend(acc, _magReverse(b.pts).concat(a.pts.slice(3)), b.open, a.open);
+    }
+  }
+  var tmp = [0, 0, 0];
+  for (var c = 0; c < def.openColat.length; c++) {
+    for (var hemi = 0; hemi < 2; hemi++) {
+      var th = def.openColat[c] * Math.PI / 180;
+      if (hemi) th = Math.PI - th;
+      for (k = 0; k < def.lon; k++) {
+        phi = 2 * Math.PI * (k + (c % 2) * 0.5) / def.lon;
+        var sd = [1.002 * Math.sin(th) * Math.cos(phi), 1.002 * Math.sin(th) * Math.sin(phi), 1.002 * Math.cos(th)];
+        _magField(ext, sd, tmp);
+        var outward = tmp[0] * sd[0] + tmp[1] * sd[1] + tmp[2] * sd[2] > 0 ? 1 : -1;
+        var tr = _magTrace(ext, sd, outward, body, def.rOut, 4000);
+        if (outward > 0) _magAppend(acc, tr.pts, false, tr.open);          // surface → far, along +B
+        else _magAppend(acc, _magReverse(tr.pts), tr.open, false);         // far → surface, along +B
+      }
+    }
+  }
+  return _magLinesGeometry(acc);
+}
+
+function _magShue(r0, alpha, theta) {
+  return r0 * Math.pow(2 / (1 + Math.cos(theta)), alpha);
+}
+
+// Magnetopause surface of revolution about +X (the Sun direction), cut where
+// it reaches x = −tail·r0, plus cross-section rings and meridians for depth.
+function _magBuildShell(def) {
+  var r0 = def.r0, alpha = def.alpha, tailX = def.tail * r0;
+  function xAt(th) { return _magShue(r0, alpha, th) * Math.cos(th); }
+  function thetaForX(x) {                       // x(θ) falls monotonically from r0
+    var lo = 0, hi = Math.PI - 1e-4;
+    for (var i = 0; i < 60; i++) {
+      var mid = (lo + hi) / 2;
+      if (xAt(mid) > x) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+  var thMax = thetaForX(-tailX);
+  var NT = 80, NP = 56;
+  var pos = new Float32Array((NT + 1) * NP * 3), idx = [];
+  var i, j;
+  for (i = 0; i <= NT; i++) {
+    var th = thMax * i / NT, r = _magShue(r0, alpha, th);
+    var x = r * Math.cos(th), rho = r * Math.sin(th);
+    for (j = 0; j < NP; j++) {
+      var ph = 2 * Math.PI * j / NP, o = (i * NP + j) * 3;
+      pos[o] = x; pos[o + 1] = rho * Math.cos(ph); pos[o + 2] = rho * Math.sin(ph);
+    }
+  }
+  for (i = 0; i < NT; i++) {
+    for (j = 0; j < NP; j++) {
+      var a = i * NP + j, b = i * NP + (j + 1) % NP, c = a + NP, d = b + NP;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  var mesh = new THREE.BufferGeometry();
+  mesh.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  mesh.setIndex(idx);
+  mesh.computeVertexNormals();
+
+  var acc = { pos: [], t: [], fade: [] };
+  function fade(x) { return _magSmooth(-tailX, -0.3 * tailX, x); }
+  var RINGS = 11, SEG = 96, pts, m;
+  for (var q = 0; q < RINGS; q++) {
+    var rx = r0 * 0.72 - (r0 * 0.72 + tailX * 0.96) * q / (RINGS - 1);
+    var rth = thetaForX(rx), rr = _magShue(r0, alpha, rth) * Math.sin(rth);
+    pts = [];
+    for (m = 0; m <= SEG; m++) {
+      var ang = 2 * Math.PI * m / SEG;
+      pts.push(rx, rr * Math.cos(ang), rr * Math.sin(ang));
+    }
+    _magAppend(acc, pts, false, false, fade);
+  }
+  for (var mer = 0; mer < 12; mer++) {
+    var mph = 2 * Math.PI * mer / 12;
+    pts = [];
+    for (m = 0; m <= 96; m++) {
+      var mt = thMax * m / 96, mr = _magShue(r0, alpha, mt);
+      pts.push(mr * Math.cos(mt), mr * Math.sin(mt) * Math.cos(mph), mr * Math.sin(mt) * Math.sin(mph));
+    }
+    _magAppend(acc, pts, false, false, fade);
+  }
+  return { mesh: mesh, lines: _magLinesGeometry(acc), tailX: tailX };
+}
+
+// Both shaders carry the logdepthbuf chunks: the renderer runs a logarithmic
+// depth buffer, and without them these would not be occluded by the planet.
+var MAG_LINE_VERT = [
+  'attribute float aT;',
+  'attribute float aFade;',
+  'varying float vT;',
+  'varying float vFade;',
+  '#include <common>',
+  '#include <logdepthbuf_pars_vertex>',
+  'void main() {',
+  '  vT = aT;',
+  '  vFade = aFade;',
+  '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+  '  #include <logdepthbuf_vertex>',
+  '}',
+].join('\n');
+
+// uFlow = 1: bright pulses travel along +B (three per line), so the sense of
+// the field is visible. uFlow = 0: steady line (polarity not sourced, or not
+// a field line at all).
+var MAG_LINE_FRAG = [
+  'uniform vec3 uColor;',
+  'uniform float uOpacity;',
+  'uniform float uTime;',
+  'uniform float uFlow;',
+  'varying float vT;',
+  'varying float vFade;',
+  '#include <common>',
+  '#include <logdepthbuf_pars_fragment>',
+  'void main() {',
+  '  #include <logdepthbuf_fragment>',
+  '  float p = fract(vT * 3.0 - uTime * 0.30);',
+  '  float pulse = 0.34 + 0.66 * pow(1.0 - p, 2.5);',
+  '  float b = mix(0.70, pulse, uFlow);',
+  '  gl_FragColor = vec4(uColor * b, vFade * uOpacity);',
+  '  #include <encodings_fragment>',
+  '}',
+].join('\n');
+
+var MAG_SHELL_VERT = [
+  'varying vec3 vN;',
+  'varying vec3 vV;',
+  'varying float vX;',
+  '#include <common>',
+  '#include <logdepthbuf_pars_vertex>',
+  'void main() {',
+  '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+  '  vN = normalize(normalMatrix * normal);',
+  '  vV = normalize(-mv.xyz);',
+  '  vX = position.x;',
+  '  gl_Position = projectionMatrix * mv;',
+  '  #include <logdepthbuf_vertex>',
+  '}',
+].join('\n');
+
+// Fresnel-style: nearly invisible face-on, glowing at the limb, so the shell
+// reads as a surface without hiding the planet. Fades out down the tail (the
+// real one keeps going).
+var MAG_SHELL_FRAG = [
+  'uniform vec3 uColor;',
+  'uniform float uOpacity;',
+  'uniform float uTail;',
+  'varying vec3 vN;',
+  'varying vec3 vV;',
+  'varying float vX;',
+  '#include <common>',
+  '#include <logdepthbuf_pars_fragment>',
+  'void main() {',
+  '  #include <logdepthbuf_fragment>',
+  '  float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);',
+  '  float fade = smoothstep(-uTail, -0.3 * uTail, vX);',
+  '  gl_FragColor = vec4(uColor, (0.03 + 0.40 * fres) * fade * uOpacity);',
+  '  #include <encodings_fragment>',
+  '}',
+].join('\n');
+
+class MagnetosphereView {
+  constructor(scene, def) {
+    this.def = def;
+    this.opacity = 0;
+    this.phase = 0;
+    this._mats = [];
+    this._geos = [];
+    this._v = new THREE.Vector3();
+    this._v2 = new THREE.Vector3();
+    this._q = new THREE.Quaternion();
+
+    this.root = new THREE.Group();          // at the body, scaled to its real radius
+    this.root.visible = false;
+    scene.add(this.root);
+    this.spin = new THREE.Group();          // body frame: axial tilt × rotation
+    this.root.add(this.spin);
+    this.dip = new THREE.Group();           // dipole frame: moment along +Z
+    this.dip.rotation.x = def.tilt * Math.PI / 180;
+    this.dip.position.set(0, 0, def.offN || 0);
+    this.spin.add(this.dip);
+
+    var flow = !!def.polarityKnown;
+    this._addLines(this.dip, def.ext ? _magBuildEmbedded(def) : _magBuildDipole(def), 0x58d0ff, flow, 0.95);
+
+    // Axes: magnetic (amber, through the dipole centre) vs rotation (white)
+    var top = def.noShell ? 2.6 : Math.max(2.2, def.shells[0] * 1.5);
+    this._addLines(this.dip, this._axisGeo(top), 0xffc857, false, 0.9);
+    this._addLines(this.spin, this._axisGeo(top * 0.86), 0xe6ecff, false, 0.45);
+
+    this.shell = null;
+    if (!def.noShell) {
+      var sh = _magBuildShell(def);
+      this.shell = new THREE.Group();       // +X aimed at the Sun every frame
+      this.root.add(this.shell);
+      var mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uColor: { value: new THREE.Color(0x7d8dff).convertSRGBToLinear() },
+          uOpacity: { value: 0 }, uTail: { value: sh.tailX },
+        },
+        vertexShader: MAG_SHELL_VERT, fragmentShader: MAG_SHELL_FRAG,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      mat.userData.gain = 1;
+      var mesh = new THREE.Mesh(sh.mesh, mat);
+      mesh.frustumCulled = false;
+      this.shell.add(mesh);
+      this._mats.push(mat);
+      this._geos.push(sh.mesh);
+      this._addLines(this.shell, sh.lines, 0x8c9bff, false, 0.34);
+    }
+  }
+
+  _axisGeo(half) {
+    var acc = { pos: [], t: [], fade: [] };
+    _magAppend(acc, [0, 0, -half, 0, 0, 0, 0, 0, half], true, true);
+    return _magLinesGeometry(acc);
+  }
+
+  _addLines(parent, geo, colorHex, flow, gain) {
+    var mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor: { value: new THREE.Color(colorHex).convertSRGBToLinear() },
+        uOpacity: { value: 0 }, uTime: { value: 0 }, uFlow: { value: flow ? 1 : 0 },
+      },
+      vertexShader: MAG_LINE_VERT, fragmentShader: MAG_LINE_FRAG,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    mat.userData.gain = gain;
+    var lines = new THREE.LineSegments(geo, mat);
+    lines.frustumCulled = false;
+    parent.add(lines);
+    this._mats.push(mat);
+    this._geos.push(geo);
+    return lines;
+  }
+
+  /** @param pos       THREE.Vector3 body centre (AU)
+   *  @param radiusAU  real body radius
+   *  @param bodyQuat  body-frame orientation WITHOUT the rotation phase (axial tilt)
+   *  @param phase     rotation angle about the body's +Z (rad)
+   *  @param time      seconds, drives the flow pulses */
+  update(pos, radiusAU, bodyQuat, phase, time) {
+    this.root.visible = this.opacity > 0.002;
+    if (!this.root.visible) return;
+    this.root.position.copy(pos);
+    this.root.scale.setScalar(radiusAU);
+    this._q.setFromAxisAngle(this._v.set(0, 0, 1), phase);
+    this.spin.quaternion.copy(bodyQuat).multiply(this._q);
+    if (this.shell) {
+      // The Sun sits at the origin: +X of the shell looks back down the radius
+      var L = pos.length() || 1;
+      this._q.setFromUnitVectors(this._v.set(1, 0, 0), this._v2.set(-pos.x / L, -pos.y / L, -pos.z / L));
+      this.shell.quaternion.copy(this._q);
+      // The standoff distance is measured from the dipole, not the body centre
+      this.shell.position.set(0, 0, this.def.offN || 0).applyQuaternion(this.spin.quaternion);
+    }
+    for (var i = 0; i < this._mats.length; i++) {
+      var u = this._mats[i].uniforms;
+      u.uOpacity.value = this.opacity * this._mats[i].userData.gain;
+      if (u.uTime) u.uTime.value = time;
+    }
+  }
+
+  dispose() {
+    if (this.root.parent) this.root.parent.remove(this.root);
+    this._geos.forEach(function (g) { g.dispose(); });
+    this._mats.forEach(function (m) { m.dispose(); });
+  }
+}
+
 /* ── Renderer ────────────────────────────────────────────────────────────── */
 
 class ThreeJSRenderer {
@@ -2400,6 +2921,82 @@ class ThreeJSRenderer {
     if (this._mcPoints) this._mcPoints.visible = active;
   }
 
+  /* ── Magnetosphere (focus mode toggle) ─────────────────────────────────── */
+
+  // frame.mag = { key, kind } names the body whose field is on (key into
+  // MAGNETOSPHERES; kind 'planet' | 'moon'), or key = null. Views are built on
+  // first use and cached; they cross-fade when the focus hops between bodies.
+  _drawMagnetosphere(state, frame, dt) {
+    var mag = frame.mag;
+    var want = mag && mag.key && MAGNETOSPHERES[mag.key] ? mag.key : null;
+    if (!this._magViews) {
+      if (!want) return;
+      this._magViews = {};
+      this._magTime = 0;
+      this._magIdentity = new THREE.Quaternion();
+    }
+    this._magTime += dt;
+    if (want && !this._magViews[want]) {
+      this._magViews[want] = new MagnetosphereView(this.scene, MAGNETOSPHERES[want]);
+      this._magViews[want].kind = mag.kind;
+    }
+    this._magLabel = null;
+    for (var key in this._magViews) {
+      var v = this._magViews[key];
+      var target = key === want ? 1 : 0;
+      v.opacity += (target - v.opacity) * Math.min(1, dt * 4);
+      if (target === 0 && v.opacity < 0.004) v.opacity = 0;
+
+      var pos = null, radius = 0, quat = this._magIdentity, trueAngle = 0, period = 0;
+      if (v.kind === 'planet') {
+        var p = this.planets[this._planetIdxByKey[key]];
+        if (p && p.group.visible) {
+          pos = p.group.position; radius = REAL_RADIUS_AU[key];
+          quat = p.group.quaternion; trueAngle = p.sphere.rotation.z; period = SIDEREAL_DAY[key];
+        }
+      } else {
+        var m = this._moons[key];
+        if (m && m.group.visible) { pos = m.group.position; radius = m.data.r; }
+      }
+      if (!pos) { v.opacity = 0; v.root.visible = false; continue; }
+
+      // Rotation: locked to the real spin while it is slow enough to follow
+      // (always in live mode), otherwise turning at the cap in the true sense
+      var w = period ? (2 * Math.PI / period) * (frame.simRate || 0) : 0;
+      if (Math.abs(w) <= MAG_SPIN_CAP) v.phase = trueAngle;
+      else v.phase += (w > 0 ? 1 : -1) * MAG_SPIN_CAP * dt;
+
+      v.update(pos, radius, quat, v.phase, this._magTime);
+      if (key === want && v.shell) {
+        this._magLabel = { view: v, pos: pos, radius: radius };
+      }
+    }
+  }
+
+  // Two words on the 2D overlay so the shape reads at a glance
+  _drawMagLabels(g) {
+    var ml = this._magLabel;
+    if (!ml || ml.view.opacity < 0.05) return;
+    var def = ml.view.def, p = ml.pos;
+    var L = Math.hypot(p.x, p.y, p.z) || 1;
+    var sx = -p.x / L, sy = -p.y / L, sz = -p.z / L;          // unit vector to the Sun
+    var nose = def.r0 * ml.radius, tail = def.tail * def.r0 * ml.radius * 0.62;
+    var a = this._ws(p.x + sx * nose, p.y + sy * nose, p.z + sz * nose);
+    var b = this._ws(p.x - sx * tail, p.y - sy * tail, p.z - sz * tail);
+    g.save();
+    g.font = '9px "JetBrains Mono", monospace';
+    g.globalAlpha = Math.min(1, ml.view.opacity) * 0.85;
+    g.fillStyle = 'rgba(170, 182, 255, 1)';
+    if (a && a.x > 0 && a.x < this.W && a.y > 0 && a.y < this.H) {
+      g.fillText('MAGNETOPAUSE', a.x + 8, a.y - 6);
+      g.beginPath(); g.arc(a.x, a.y, 2, 0, Math.PI * 2); g.fill();
+    }
+    if (b && b.x > 0 && b.x < this.W && b.y > 0 && b.y < this.H) {
+      g.fillText('MAGNETOTAIL', b.x + 8, b.y - 6);
+    }
+    g.restore();
+  }
+
   /* ── Overlay (text, dashed lines, pulse rings) ─────────────────────────── */
 
   _drawOverlay(state, frame) {
@@ -2454,6 +3051,7 @@ class ThreeJSRenderer {
     }
 
     this._drawConjunctions(state, frame, g);
+    this._drawMagLabels(g);
 
     // Jupiter Δv vector
     var jv = frame.jup;
@@ -2619,6 +3217,7 @@ class ThreeJSRenderer {
     this._drawConeMesh(state, frame);
     this._drawMPCAsteroids(state, frame);
     this._drawPromotedObject(state, frame, dt);
+    this._drawMagnetosphere(state, frame, dt);
 
     // Stars live at infinity: copy ONLY the rotation, never the translation
     this.starCamera.quaternion.copy(this.camera.quaternion);
