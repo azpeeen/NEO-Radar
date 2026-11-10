@@ -2218,8 +2218,15 @@ class ThreeJSRenderer {
       this._loadModel(key, function (inst) {
         if (!inst || self._promoMesh !== group) return;   // failed or stale
         // Manifest GLBs ship obj2gltf's default material and no UVs — dress
-        // them in the shared PBR rock set (curated NASA GLBs keep their own)
-        if (!MODEL_NOTICE[key]) {
+        // them in the shared PBR rock set. Curated NASA GLBs keep their own
+        // material when it carries a texture; an untextured one (Apophis) is
+        // glTF's default metal (metalness 1), which has no diffuse term and
+        // renders near-black without an environment map: rock set for it too.
+        var textured = false;
+        inst.traverse(function (child) {
+          if (child.isMesh && child.material && child.material.map) textured = true;
+        });
+        if (!MODEL_NOTICE[key] || !textured) {
           self._ensureSphericalUVs(inst);
           var rockMat = self._getRockMaterial(seed);
           inst.traverse(function (child) {
@@ -2361,6 +2368,19 @@ class ThreeJSRenderer {
     this._gltfLoader.load('/assets/models/' + key + '.glb', function (gltf) {
       try {
         var root = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+        // Lighting needs real vertex normals. For meshes without them
+        // GLTFLoader falls back to flatShading, i.e. normals from screen-space
+        // derivatives of the view position, and those underflow float32 when
+        // a km-sized body is seen at true scale from a few km away (pilot
+        // mode): the model turns solid black. Compute them once instead.
+        root.traverse(function (child) {
+          if (!child.isMesh || !child.geometry) return;
+          if (!child.geometry.attributes.normal) child.geometry.computeVertexNormals();
+          var mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(function (m) {
+            if (m && m.flatShading) { m.flatShading = false; m.needsUpdate = true; }
+          });
+        });
         var sph = new THREE.Box3().setFromObject(root)
           .getBoundingSphere(new THREE.Sphere());
         root.position.sub(sph.center);
@@ -3041,8 +3061,10 @@ class ThreeJSRenderer {
     var self = this;
     var scene = new THREE.Scene();
     var cam = new THREE.PerspectiveCamera(36, this.W / Math.max(1, this.H), 0.05, 80);
-    cam.position.set(0, 1.55, 6.6);
-    cam.lookAt(0, 1.12, 0);
+    // Far enough back that the hull takes ~40% of the width and sits in the
+    // lower quarter of the view: the scene is the subject, not the ship
+    cam.position.set(0, 2.5, 11.5);
+    cam.lookAt(0, 1.9, 0);
 
     var sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
     scene.add(sun);
@@ -3059,7 +3081,7 @@ class ThreeJSRenderer {
       if (extra) for (var k in extra) o[k] = extra[k];
       return new THREE.MeshStandardMaterial(o);
     }
-    var hullMat   = mat(0xd4dae6, 0.50);
+    var hullMat   = mat(0xaeb7c9, 0.55);
     var darkMat   = mat(0x2b3242, 0.65);
     var accentMat = mat(0x1a6cf6, 0.45, { emissive: this._col(0x1a6cf6), emissiveIntensity: 0.30 });
     var glassMat  = mat(0x0c1a33, 0.12, { metalness: 0.6, flatShading: false,
@@ -3089,6 +3111,11 @@ class ThreeJSRenderer {
     hullGeo.rotateX(-Math.PI / 2);
     hullGeo.scale(1, 0.70, 1);
     add(hullGeo, hullMat);
+    // Dark tail cap: the chase camera looks straight at the hull's flat rear
+    // end, which otherwise reads as a third, white-hot engine
+    var capGeo = new THREE.CircleGeometry(0.262, 14);
+    capGeo.scale(1, 0.70, 1);
+    add(capGeo, darkMat, 0, 0, 1.603);
 
     // Canopy + dorsal accent stripe
     var canopyGeo = new THREE.SphereGeometry(0.2, 14, 10);
@@ -3187,7 +3214,7 @@ class ThreeJSRenderer {
     var d = v.length() || 1;
     v.multiplyScalar(1 / d).applyQuaternion(this._shipQ);
     sh.sun.position.copy(v).multiplyScalar(10);
-    sh.sun.intensity = 0.9 + 1.7 / (1 + 0.35 * Math.sqrt(d));
+    sh.sun.intensity = 0.55 + 1.0 / (1 + 0.35 * Math.sqrt(d));
 
     // Engines follow the throttle (boost burns longer and brighter)
     var want = Math.min(1, Math.abs(s.throttle)) * (s.boost > 1 ? 1.6 : 1);
@@ -3242,9 +3269,11 @@ class ThreeJSRenderer {
       g.lineWidth = 1.4;
       g.font = '10px "JetBrains Mono", monospace';
       var onScreen = p.front && p.x > 24 && p.x < W - 24 && p.y > 24 && p.y < H - 24;
-      if (onScreen) {
+      var rpx = p.front && p.depth > 0 ? p.f * s.tr / p.depth : 0;
+      if (onScreen && rpx + 8 > Math.min(W, H) * 0.40) {
+        // The body fills the view: brackets would only clutter it
+      } else if (onScreen) {
         // Corner brackets hugging the body's apparent disc
-        var rpx = p.depth > 0 ? p.f * s.tr / p.depth : 0;
         var b = Math.max(12, Math.min(Math.min(W, H) * 0.42, rpx + 8)), c = Math.max(5, b * 0.3);
         g.beginPath();
         for (var qx = -1; qx <= 1; qx += 2) for (var qy = -1; qy <= 1; qy += 2) {
@@ -3253,9 +3282,10 @@ class ThreeJSRenderer {
           g.lineTo(p.x + qx * (b - c), p.y + qy * b);
         }
         g.stroke();
-        g.fillText(s.tName, p.x + b + 8, p.y - 2);
-        g.fillStyle = 'rgba(197,202,216,0.85)';
-        g.fillText(s.tDist, p.x + b + 8, p.y + 11);
+        // Centred under the brackets: the map's own label already sits to the
+        // right of the body, and the Sun / catalog asteroids have none
+        g.textAlign = 'center';
+        g.fillText(s.tName + ' · ' + s.tDist, p.x, p.y + b + 15);
       } else {
         // Off screen (or behind): arrow on a ring pointing the shortest turn
         var ax = p.cx, ay = p.cy, al = Math.hypot(ax, ay);

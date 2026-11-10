@@ -573,7 +573,9 @@
   }
   #pilot-hud .ph-dest button:hover { color: var(--ink); border-color: var(--cobalt-soft); }
   #pilot-keys {
-    position: absolute; left: 16px; bottom: 16px; z-index: 5; display: none;
+    /* Top, beside the HUD card: the ship owns the bottom of the view */
+    position: absolute; left: 300px; top: 16px; z-index: 5; display: none;
+    max-width: calc(100% - 300px - 72px);
     padding: 10px 12px; background: rgba(8,10,18,0.6);
     border: 1px solid var(--line); border-radius: 8px;
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -590,7 +592,9 @@
   }
   #pilot-exit-btn:hover { color: var(--ink); border-color: var(--ink-3); }
   .canvas-area.pilot-active #pilot-exit-btn { display: grid; }
-  .canvas-area.pilot-active #pilot-keys { display: block; }
+  /* Readable on entry, then steps back once the pilot has had time to read it */
+  .canvas-area.pilot-active #pilot-keys { display: block; animation: pilot-keys-dim 1.2s 18s forwards; }
+  @keyframes pilot-keys-dim { to { opacity: 0.35; } }
   .canvas-area.pilot-active #pilot-btn,
   .canvas-area.pilot-active #controls-hint,
   .canvas-area.pilot-active .legend,
@@ -804,17 +808,19 @@
       <span>PILOT SHIP</span><span class="kbd">P</span>
     </button>
     <section id="pilot-hud" aria-hidden="true">
-      <div class="fh-title"><span>PILOT MODE</span><span class="ph-tag" id="ph-mode">MANUAL</span></div>
-      <div class="fh-rule"></div>
-      <div class="ph-speed"><span id="ph-speed">0</span><small id="ph-speed-u">km/s</small></div>
-      <div class="ph-c" id="ph-c">AT REST</div>
-      <div class="fh-rule"></div>
-      <div class="fh-kv"><span class="k">NEAREST</span><span class="v" id="ph-near">—</span></div>
-      <div class="fh-kv"><span class="k">SUN</span><span class="v" id="ph-sun">—</span></div>
-      <div class="fh-kv"><span class="k">TARGET</span><span class="v" id="ph-target">—</span></div>
-      <div class="fh-rule"></div>
-      <div class="ph-dest-h">FLY TO</div>
-      <div class="ph-dest" id="ph-dest"></div>
+      <section class="fh-title"><span>PILOT MODE</span><span class="ph-tag" id="ph-mode">MANUAL</span></section>
+      <section class="fh-rule"></section>
+      <section class="ph-speed"><span id="ph-speed">0</span><small id="ph-speed-u">km/s</small></section>
+      <section class="ph-c" id="ph-c">AT REST</section>
+      <section class="fh-rule"></section>
+      <section class="fh-kv"><span class="k">NEAREST</span><span class="v" id="ph-near">—</span></section>
+      <section class="fh-kv"><span class="k">SUN</span><span class="v" id="ph-sun">—</span></section>
+      <section class="fh-kv"><span class="k">TARGET</span><span class="v" id="ph-target">—</span></section>
+      <section class="fh-kv"><span class="k">LIGHT TIME</span><span class="v" id="ph-light">—</span></section>
+      <section class="fh-kv"><span class="k">THRUST LIMIT</span><span class="v" id="ph-limit">×1.0</span></section>
+      <section class="fh-rule"></section>
+      <section class="ph-dest-h">FLY TO</section>
+      <section class="ph-dest" id="ph-dest"></section>
     </section>
     <section id="pilot-keys">
       <span class="kbd">W</span> <span class="kbd">S</span> THRUST &nbsp; <span class="kbd">A</span> <span class="kbd">D</span> YAW &nbsp; <span class="kbd">↑</span> <span class="kbd">↓</span> PITCH &nbsp; <span class="kbd">Q</span> <span class="kbd">E</span> ROLL<br>
@@ -1940,6 +1946,12 @@ const _frame = {
   conjs: [],
   mpcDirty: false,
   hoverMPC: null,
+  // Pilot mode (see _pilotTick): ship position, camera attitude (cq*), hull
+  // attitude relative to the camera (rq*), turn rates and throttle for the
+  // hull's cosmetics, near plane, and the target marker.
+  ship: { active:false, near:1e-6, x:0, y:0, z:0, cqx:0, cqy:0, cqz:0, cqw:1, rqx:0, rqy:0, rqz:0, rqw:1,
+          yaw:0, pitch:0, throttle:0, boost:1, auto:false,
+          hasTarget:false, tx:0, ty:0, tz:0, tr:0, tName:'', tDist:'' },
   // Magnetic field overlay: key into MAGNETOSPHERES (renderer3d.js) or null
   mag: { key: null, kind: null },
   simRate: 0,              // sim days per real second (the renderer rate-limits spin with it)
@@ -2010,11 +2022,12 @@ function tick(now) {
   // ── Promoted/focused asteroid mesh: position + physical radius ──
   {
     const pr=_frame.promoted;
-    const tg=state.focusTarget;
+    // Pilot mode: an asteroid the ship has targeted gets the same rock mesh
+    const tg=state.focusTarget || (_pilot.active && _pilot.target ? _pilot.target.tg : null);
     let sx=0, sy=0, sz=0, srcRadius=0, have=false;
     if (tg && tg.type==='neo') {
       const f=_frame.neos[tg.idx];
-      sx=f.x; sy=f.y; sz=f.z; srcRadius=_focusRadiusAU; have=true;
+      sx=f.x; sy=f.y; sz=f.z; srcRadius=state.focusTarget ? _focusRadiusAU : _bodyRadiusAU(tg); have=true;
     } else if (tg && tg.type==='mpc') {
       const pos=getMPCPosition(tg.ast,_SIM_EPOCH_JD+t);
       sx=pos.x; sy=pos.y; sz=pos.z; srcRadius=_astRadiusAU(tg.ast); have=true;
@@ -2029,11 +2042,15 @@ function tick(now) {
       pr.distLD=(Math.hypot(sx-ep.x,sy-ep.y,sz)/0.00257).toFixed(2);
       // Focus flag: only then does the renderer apply the big min-px floor —
       // a dossier promotion viewed from the map stays a small marker
-      pr.focused = !!(tg && (tg.type==='neo' || tg.type==='mpc'));
+      pr.focused = !!(state.focusTarget && (tg.type==='neo' || tg.type==='mpc'));
     } else {
       pr.active=false; pr.focused=false;
     }
   }
+
+  // ── Pilot mode: the ship owns the camera this frame ──
+  if (_pilot.active) _pilotTick(dt, t);
+  else _frame.ship.active = false;
 
   // ── Camera: drag inertia decay (the Eyes "feel") ──
   if (!_dragMode && (_camVTheta !== 0 || _camVPhi !== 0)) {
@@ -2131,6 +2148,7 @@ function tick(now) {
   // promoted rock mesh renders in its place); null when no NEO is focused
   _frame.focusNeoIdx = (state.focusTarget && state.focusTarget.type === 'neo')
     ? state.focusTarget.idx
+    : (_pilot.active && _pilot.target && _pilot.target.tg.type === 'neo') ? _pilot.target.tg.idx
     : null;
 
   // Focus LOD inputs: planets far from the focused object collapse to dots
@@ -2217,6 +2235,8 @@ function visVivaKms(a, r) {
 // list filtered by the risk chip.
 function _cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 function _focusFromSearch(target){
+  // Piloting: a search result is a destination, the autopilot takes it
+  if (_pilot && _pilot.active) { _pilotSetTarget(target, true); return; }
   // From the map: enterFocus. Already focused: hot-swap without an exit trip.
   if (state.focusMode && !_exitAnim) _switchFocus(target);
   else enterFocus(target);
@@ -2530,7 +2550,7 @@ _renderer.onModelApplied = function (context, key, noticeText) {
 // now; demote (with dispose) when nothing should.
 function _syncAsteroidMesh() {
   var want = null;
-  var tg = state.focusTarget;
+  var tg = state.focusTarget || (_pilot && _pilot.active && _pilot.target ? _pilot.target.tg : null);
   if (tg && tg.type === 'neo') {
     var n = NEOS[tg.idx];
     // The NEO's own orbit LineLoop already lives in the scene
@@ -2771,6 +2791,9 @@ function _applyFocusTarget(target) {
 }
 
 function enterFocus(target) {
+  // Piloting: every "focus this" entry point (sidebar button, search, deep
+  // links) becomes a destination for the autopilot instead
+  if (_pilot && _pilot.active) { _pilotSetTarget(target, true); return; }
   if (state.focusTarget) return;               // already focused / animating out
   state._camBeforeFocus = Object.assign({}, state.cam);
   state.focusMode = true;
@@ -2895,6 +2918,513 @@ document.getElementById('focus-btn').addEventListener('click', function (e) {
   if (idx >= 0) enterFocus({ type: 'neo', idx: idx });
 });
 
+// ─── Pilot mode ──────────────────────────────────────────────────────────────
+// Fly a ship through the live system (P, or the PILOT SHIP button). This is a
+// free camera with a hull, NOT a physical spacecraft: there is no gravity on
+// the ship and no speed-of-light limit, and the HUD says so whenever the ship
+// goes faster than light. Everything the ship flies past is the real scene:
+// same positions, same sizes, same clock.
+//
+// Three ideas make it flyable across twelve orders of magnitude:
+//   1. Speed scales with the distance to the nearest surface, so one throttle
+//      crosses 30 AU in seconds and still creeps up on a 300 m asteroid.
+//   2. The ship's position is stored relative to an ANCHOR body while it is
+//      close to one. Planets move at ~30 km/s (and far faster under time
+//      acceleration); without this they would simply leave the ship behind.
+//   3. The autopilot flies to a point on the DAY side of the target and stops
+//      where the body spans about 60% of the view height.
+//
+// The renderer (renderer3d.js) draws the hull in its own pass; this file owns
+// the flight model and hands it position + attitude through _frame.ship.
+var PILOT_C = 0.0020040;            // speed of light, AU/s (173.1446 AU/day)
+var PILOT_K = 0.9;                  // top speed = K × distance to nearest surface, per second
+var PILOT_VMIN = 2e-10;             // 30 m/s: the ship can always move
+var PILOT_VMAX = 3;                 // AU/s at thrust limit ×1
+var PILOT_ANCHOR_IN = 80;           // start riding a body inside this many radii…
+var PILOT_ANCHOR_OUT = 110;         // …and let go beyond this many
+var PILOT_ANCHOR_RMIN = 2.5e-8;     // radii floor for that rule (3.7 km: tiny bodies get a 300 km grip)
+var PILOT_STOP_R = 4.0;             // autopilot stops this many radii from the centre (disc ≈ 60% of the height)
+
+var _pilot = {
+  active: false,
+  bodies: null,                     // [{tg, name, r, x, y, z}], positions refreshed every frame
+  anchor: null,                     // body the ship rides with, or null (heliocentric)
+  rx: 0, ry: 0, rz: 0,              // position relative to the anchor (AU)
+  x: 0, y: 0, z: 0,                 // heliocentric position (derived)
+  q: null, cq: null,                // ship attitude, lagged camera attitude (THREE.Quaternion)
+  yawRate: 0, pitchRate: 0, rollRate: 0,
+  dragYaw: 0, dragPitch: 0,         // steering from mouse drags since the last frame (rad)
+  visYaw: 0, visPitch: 0,           // smoothed turn rates for the hull's bank
+  throttle: 0, limit: 1, speed: 0,
+  target: null,                     // body object (from `bodies`, or a custom one for MPC asteroids)
+  auto: false, autoV: 0, autoHint: null,
+  near: null, nearSurf: 0,
+  hudT: 0,
+};
+var _pilotKeys = {};
+var _pilotDrag = null;              // { x, y, moved } while the left button is down
+var _pilotV = null, _pilotV2 = null, _pilotV3 = null, _pilotQ = null, _pilotM = null;   // THREE scratch
+
+// Position / radius / name of any focus-style target descriptor (+ the Sun)
+function _bodyPos(tg, t) {
+  if (tg.type === 'sun')    return { x: 0, y: 0, z: 0 };
+  if (tg.type === 'planet') return orbitPos(PLANETS[tg.idx], t);
+  if (tg.type === 'neo')    return orbitPos(NEOS[tg.idx], t);
+  if (tg.type === 'moon')   return _moonWorldPos(tg.id, t);
+  if (tg.type === 'dwarf')  return orbitPos(DWARF_ELEMS[tg.idx], t);
+  if (tg.type === 'comet')  return orbitPos(COMET_ELEMS[tg.idx], t);
+  return getMPCPosition(tg.ast, _SIM_EPOCH_JD + t);
+}
+function _bodyRadiusAU(tg) {
+  if (tg.type === 'sun')    return REAL_RADIUS_AU.sun;
+  if (tg.type === 'planet') return REAL_RADIUS_AU[PLANETS[tg.idx].key] || 2e-5;
+  if (tg.type === 'moon')   return MOONS_BY_ID[tg.id].r;
+  if (tg.type === 'dwarf')  return DWARF_PLANETS[tg.idx].r;
+  if (tg.type === 'comet')  return COMETS[tg.idx].r;
+  if (tg.type === 'neo')    return 1.7e-9;       // catalog NEOs carry no H: ~500 m body, as in focus mode
+  return _astRadiusAU(tg.ast);
+}
+function _bodyName(tg) {
+  if (tg.type === 'sun')    return 'Sun';
+  if (tg.type === 'planet') return PLANETS[tg.idx].name;
+  if (tg.type === 'moon')   return MOONS_BY_ID[tg.id].name;
+  if (tg.type === 'dwarf')  return DWARF_PLANETS[tg.idx].name;
+  if (tg.type === 'comet')  return COMETS[tg.idx].short || COMETS[tg.idx].name;
+  if (tg.type === 'neo')    return NEOS[tg.idx].name;
+  return tg.ast.name || tg.ast.designation;
+}
+function _sameBody(a, b) {
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'sun') return true;
+  if (a.type === 'mpc') return a.ast === b.ast;
+  if (a.type === 'moon') return a.id === b.id;
+  return a.idx === b.idx;
+}
+
+function _pilotBuildBodies() {
+  var L = [{ tg: { type: 'sun' } }];
+  PLANETS.forEach(function (p, i) { L.push({ tg: { type: 'planet', idx: i } }); });
+  MOONS.forEach(function (m) { L.push({ tg: { type: 'moon', id: m.id } }); });
+  DWARF_PLANETS.forEach(function (d, i) { L.push({ tg: { type: 'dwarf', idx: i } }); });
+  COMETS.forEach(function (c, i) { L.push({ tg: { type: 'comet', idx: i } }); });
+  NEOS.forEach(function (n, i) { L.push({ tg: { type: 'neo', idx: i } }); });
+  L.forEach(function (b) { b.name = _bodyName(b.tg); b.r = _bodyRadiusAU(b.tg); b.x = b.y = b.z = 0; });
+  return L;
+}
+function _pilotBodyFor(tg) {
+  for (var i = 0; i < _pilot.bodies.length; i++) {
+    if (_sameBody(_pilot.bodies[i].tg, tg)) return _pilot.bodies[i];
+  }
+  // Not in the standing list (an MPC catalog asteroid): track it on its own
+  var p = _bodyPos(tg, state.simTime);
+  return { tg: tg, name: _bodyName(tg), r: _bodyRadiusAU(tg), x: p.x, y: p.y, z: p.z || 0, custom: true };
+}
+function _pilotRefreshBodies(t) {
+  var B = _pilot.bodies;
+  for (var i = 0; i < B.length; i++) {
+    var p = _bodyPos(B[i].tg, t);
+    B[i].x = p.x; B[i].y = p.y; B[i].z = p.z || 0;
+  }
+  var T = _pilot.target;
+  if (T && T.custom) { var q = _bodyPos(T.tg, t); T.x = q.x; T.y = q.y; T.z = q.z || 0; }
+}
+
+// Unit vector from a body toward the Sun (the Sun itself: +X, arbitrary)
+function _pilotSunDir(b, out) {
+  var L = Math.hypot(b.x, b.y, b.z);
+  if (L < 1e-9) return out.set(1, 0, 0);
+  return out.set(-b.x / L, -b.y / L, -b.z / L);
+}
+// Where the ship should sit to look at body `b`: `dist` from its centre, on
+// the day side, pulled a little toward `hint` (where the ship is coming from)
+// and above the ecliptic so the terminator shows.
+function _pilotViewPoint(b, dist, hint, out) {
+  if (b.tg.type === 'sun') {
+    out.copy(hint);
+  } else {
+    _pilotSunDir(b, out).multiplyScalar(0.7);
+    out.x += hint.x * 0.3; out.y += hint.y * 0.3; out.z += hint.z * 0.3 + 0.25;
+  }
+  if (out.lengthSq() < 1e-12) out.set(0, 0, 1);
+  out.normalize().multiplyScalar(dist);
+  out.x += b.x; out.y += b.y; out.z += b.z;
+  return out;
+}
+// Attitude that looks from (x,y,z) at body b, keeping `up` as far as possible
+function _pilotLookAt(x, y, z, b, up, out) {
+  _pilotM.lookAt(_pilotV.set(x, y, z), _pilotV2.set(b.x, b.y, b.z), up);
+  return out.setFromRotationMatrix(_pilotM);
+}
+function _pilotSetWorld(x, y, z) {
+  var P = _pilot, a = P.anchor;
+  P.x = x; P.y = y; P.z = z;
+  P.rx = x - (a ? a.x : 0); P.ry = y - (a ? a.y : 0); P.rz = z - (a ? a.z : 0);
+}
+function _pilotSetAnchor(b) {
+  var P = _pilot;
+  if (P.anchor === b) return;
+  P.anchor = b;                                 // world position is continuous across the switch
+  P.rx = P.x - (b ? b.x : 0); P.ry = P.y - (b ? b.y : 0); P.rz = P.z - (b ? b.z : 0);
+}
+
+function _pilotSetTarget(tg, engage) {
+  var P = _pilot;
+  if (!P.active) return;
+  P.target = tg ? _pilotBodyFor(tg) : null;
+  P.auto = false; P.autoV = 0;
+  if (P.target && engage) _pilotEngage();
+  _syncAsteroidMesh();                          // NEO/MPC targets get their rock mesh
+  _pilotHud(true);
+}
+function _pilotEngage() {
+  var P = _pilot, T = P.target;
+  if (!T) return;
+  // Remember which side the ship came from: the arrival point leans that way
+  var dx = P.x - T.x, dy = P.y - T.y, dz = P.z - T.z, L = Math.hypot(dx, dy, dz) || 1;
+  P.autoHint = { x: dx / L, y: dy / L, z: dz / L };
+  P.auto = true; P.autoV = 0;
+  _pilotSetAnchor(T);                           // fly in the target's own moving frame
+}
+// T key: the body nearest the crosshair, within 25° of the nose
+function _pilotTargetAhead() {
+  var P = _pilot, best = null, bestA = 25 * Math.PI / 180;
+  var f = _pilotV.set(0, 0, -1).applyQuaternion(P.q);
+  for (var i = 0; i < P.bodies.length; i++) {
+    var b = P.bodies[i];
+    var dx = b.x - P.x, dy = b.y - P.y, dz = b.z - P.z, L = Math.hypot(dx, dy, dz);
+    if (L < b.r * 1.05) continue;
+    var a = Math.acos(Math.max(-1, Math.min(1, (dx * f.x + dy * f.y + dz * f.z) / L)));
+    a -= Math.asin(Math.min(1, b.r / L));       // measured to the limb, so big discs win
+    if (a < bestA) { bestA = a; best = b; }
+  }
+  if (best) _pilotSetTarget(best.tg, false);
+}
+
+function enterPilot() {
+  var P = _pilot;
+  if (P.active || window.innerWidth < 768) return;
+  // Start next to whatever is focused, otherwise next to Earth
+  var startTg = state.focusTarget
+    ? Object.assign({}, state.focusTarget)
+    : { type: 'planet', idx: PLANETS.findIndex(function (p) { return p.key === 'earth'; }) };
+  if (state.focusTarget) exitFocusSilent();
+  closeMPCDossier();
+  if (!_pilotV) {
+    _pilotV = new THREE.Vector3(); _pilotV2 = new THREE.Vector3(); _pilotV3 = new THREE.Vector3();
+    _pilotQ = new THREE.Quaternion(); _pilotM = new THREE.Matrix4();
+    P.q = new THREE.Quaternion(); P.cq = new THREE.Quaternion();
+    P.bodies = _pilotBuildBodies();
+    _pilotBuildChips();
+  }
+  state._camBeforePilot = Object.assign({}, state.cam);
+  P.active = true;
+  _pilotKeys = {}; _pilotDrag = null;
+  P.yawRate = P.pitchRate = P.rollRate = P.dragYaw = P.dragPitch = P.visYaw = P.visPitch = 0;
+  P.throttle = 0; P.speed = 0; P.limit = 1; P.auto = false; P.autoV = 0;
+  _pilotRefreshBodies(state.simTime);
+  var b = _pilotBodyFor(startTg);
+  P.anchor = b;
+  var hint = new THREE.Vector3(0.35, -0.55, 0.2).normalize();
+  var at = _pilotViewPoint(b, b.r * 4.6, hint, new THREE.Vector3());
+  _pilotSetWorld(at.x, at.y, at.z);
+  _pilotLookAt(P.x, P.y, P.z, b, new THREE.Vector3(0, 0, 1), P.q);
+  P.cq.copy(P.q);
+  P.target = b.custom ? b : null;               // an MPC asteroid needs to stay tracked (and meshed)
+  state.hoverId = null; state.hoverPlanet = null; state.hoverMoon = null;
+  state.hoverDwarf = null; state.hoverComet = null; _hoverMPC = null;
+  document.getElementById('tooltip').classList.remove('show');
+  document.getElementById('pilot-hud').classList.add('show');
+  _container.classList.add('pilot-active');
+  cv.style.cursor = 'crosshair';
+  _syncAsteroidMesh();
+  _pilotHud(true);
+}
+function exitPilot() {
+  var P = _pilot;
+  if (!P.active) return;
+  P.active = false; P.target = null; P.auto = false; P.anchor = null;
+  _pilotKeys = {}; _pilotDrag = null;
+  if (state._camBeforePilot) Object.assign(state.cam, state._camBeforePilot);
+  _camVTheta = 0; _camVPhi = 0;
+  document.getElementById('pilot-hud').classList.remove('show');
+  _container.classList.remove('pilot-active');
+  cv.style.cursor = 'grab';
+  _syncAsteroidMesh();
+}
+
+// Nearest surface: sets the speed scale, the near plane and the HUD row
+function _pilotScan() {
+  var P = _pilot, B = P.bodies, d;
+  P.near = null; P.nearSurf = Infinity;
+  for (var i = 0; i < B.length; i++) {
+    d = Math.hypot(P.x - B[i].x, P.y - B[i].y, P.z - B[i].z) - B[i].r;
+    if (d < P.nearSurf) { P.nearSurf = d; P.near = B[i]; }
+  }
+  var T = P.target;
+  if (T && T.custom) {
+    d = Math.hypot(P.x - T.x, P.y - T.y, P.z - T.z) - T.r;
+    if (d < P.nearSurf) { P.nearSurf = d; P.near = T; }
+  }
+}
+// Bodies are solid: put the ship back at `berth` radii if it went inside
+function _pilotPushOut(b, berth) {
+  var P = _pilot;
+  var px = P.x - b.x, py = P.y - b.y, pz = P.z - b.z, L = Math.hypot(px, py, pz);
+  var min = b.r * berth + 2e-11;
+  if (L >= min) return;
+  if (L < 1e-15) { px = 0; py = 0; pz = 1; L = 1; }
+  P.x = b.x + px / L * min; P.y = b.y + py / L * min; P.z = b.z + pz / L * min;
+}
+// Distance to a body in units of its radius (floored for km-sized bodies)
+function _pilotAnchorScore(b) {
+  var P = _pilot;
+  return Math.hypot(P.x - b.x, P.y - b.y, P.z - b.z) / Math.max(b.r, PILOT_ANCHOR_RMIN);
+}
+
+// One simulation step. Runs inside tick() after every body position for this
+// frame is known.
+function _pilotTick(dt, t) {
+  var P = _pilot, B = P.bodies, K = _pilotKeys, i;
+  _pilotRefreshBodies(t);
+
+  // World position from the anchor frame: this is what carries the ship along
+  var a = P.anchor;
+  P.x = (a ? a.x : 0) + P.rx; P.y = (a ? a.y : 0) + P.ry; P.z = (a ? a.z : 0) + P.rz;
+
+  // ── Steering ──
+  var yawIn = ((K.a || K.left) ? 1 : 0) - ((K.d || K.right) ? 1 : 0);
+  var pitchIn = (K.up ? 1 : 0) - (K.down ? 1 : 0);
+  var rollIn = (K.q ? 1 : 0) - (K.e ? 1 : 0);
+  var thrIn = (K.w ? 1 : 0) - (K.s ? 1 : 0);
+  var steering = yawIn || pitchIn || rollIn || thrIn || P.dragYaw || P.dragPitch;
+  if (steering && P.auto) { P.auto = false; P.autoV = 0; }   // any manual input takes the stick back
+
+  var kr = Math.min(1, dt * 8);
+  P.yawRate += (yawIn * 1.1 - P.yawRate) * kr;
+  P.pitchRate += (pitchIn * 0.9 - P.pitchRate) * kr;
+  P.rollRate += (rollIn * 1.4 - P.rollRate) * kr;
+  var dYaw = P.yawRate * dt + P.dragYaw, dPitch = P.pitchRate * dt + P.dragPitch;
+  P.dragYaw = 0; P.dragPitch = 0;
+  if (!P.auto) {
+    // Local axes: +Y up (yaw left positive), +X right (nose up positive),
+    // +Z back (roll left positive)
+    P.q.multiply(_pilotQ.setFromAxisAngle(_pilotV.set(0, 1, 0), dYaw));
+    P.q.multiply(_pilotQ.setFromAxisAngle(_pilotV.set(1, 0, 0), dPitch));
+    P.q.multiply(_pilotQ.setFromAxisAngle(_pilotV.set(0, 0, 1), P.rollRate * dt));
+    P.q.normalize();
+  }
+  var kv = Math.min(1, dt * 6);
+  P.visYaw += ((dt > 0 ? dYaw / dt : 0) - P.visYaw) * kv;
+  P.visPitch += ((dt > 0 ? dPitch / dt : 0) - P.visPitch) * kv;
+
+  _pilotScan();
+  var vScale = Math.max(PILOT_VMIN, Math.min(PILOT_VMAX, PILOT_K * Math.max(0, P.nearSurf)));
+  var boost = K.shift ? 4 : 1;
+
+  if (P.auto && P.target) {
+    // ── Autopilot ──
+    var T2 = P.target;
+    var stop = Math.max(T2.r * PILOT_STOP_R, T2.r + 4e-10);
+    var A = _pilotViewPoint(T2, stop, P.autoHint, _pilotV2);
+    var ax = A.x - P.x, ay = A.y - P.y, az = A.z - P.z;
+    var LA = Math.hypot(ax, ay, az);
+    // Nose on the body the whole way in (the ship drifts to the day side)
+    var goal = _pilotLookAt(P.x, P.y, P.z, T2, _pilotV3.set(0, 1, 0).applyQuaternion(P.q), _pilotQ);
+    var off = P.q.angleTo(goal);
+    P.q.rotateTowards(goal, 1.9 * dt);
+    // Exponential approach (covers any distance in ~10 s), eased in, and held
+    // back while the nose is still swinging round
+    var want = Math.min(60, LA * 1.6) * (off > 0.6 ? 0.12 : 1);
+    P.autoV += (want - P.autoV) * Math.min(1, dt * (want > P.autoV ? 1.4 : 6));
+    var step = Math.min(LA, P.autoV * dt);
+    if (LA > 0) { P.x += ax / LA * step; P.y += ay / LA * step; P.z += az / LA * step; }
+    P.speed = P.autoV;
+    P.throttle += (Math.min(1, P.autoV / Math.max(1e-12, vScale)) - P.throttle) * Math.min(1, dt * 4);
+    if (LA - step < Math.max(stop * 0.02, 2e-11) && off < 0.05) {
+      P.auto = false; P.autoV = 0; P.speed = 0;      // arrived
+    }
+  } else {
+    // ── Manual flight ──
+    var tt = thrIn > 0 ? 1 : thrIn < 0 ? -0.5 : 0;
+    P.throttle += (tt - P.throttle) * Math.min(1, dt * (thrIn ? 2.4 : 4));
+    if (Math.abs(P.throttle) < 0.002 && !thrIn) P.throttle = 0;
+    P.speed = P.throttle * vScale * P.limit * boost;
+    var f = _pilotV.set(0, 0, -1).applyQuaternion(P.q);
+    P.x += f.x * P.speed * dt; P.y += f.y * P.speed * dt; P.z += f.z * P.speed * dt;
+  }
+
+  // ── Bodies are solid (the autopilot keeps a wider berth, so a pass behind a
+  // planet slides round it instead of skimming the surface) ──
+  var berth = P.auto ? 1.6 : 1.012;
+  for (i = 0; i < B.length; i++) _pilotPushOut(B[i], berth);
+  if (P.target && P.target.custom) _pilotPushOut(P.target, berth);
+  _pilotScan();
+
+  // ── Anchor: ride the body the ship is closest to, in units of its radius.
+  // Switching needs a clearly better candidate, so two bodies never trade the
+  // ship back and forth. ──
+  if (P.auto && P.target) {
+    _pilotSetAnchor(P.target);
+  } else {
+    var best = null, bestS = PILOT_ANCHOR_IN, sc;
+    for (i = 0; i < B.length; i++) {
+      sc = _pilotAnchorScore(B[i]);
+      if (sc < bestS) { bestS = sc; best = B[i]; }
+    }
+    if (P.target && P.target.custom) {
+      sc = _pilotAnchorScore(P.target);
+      if (sc < bestS) { bestS = sc; best = P.target; }
+    }
+    if (!P.anchor) {
+      if (best) _pilotSetAnchor(best);
+    } else {
+      var cur = _pilotAnchorScore(P.anchor);
+      if (cur > PILOT_ANCHOR_OUT) _pilotSetAnchor(best);          // may be null: back to heliocentric
+      else if (best && best !== P.anchor && bestS < cur * 0.6) _pilotSetAnchor(best);
+    }
+  }
+  _pilotSetWorld(P.x, P.y, P.z);
+
+  // ── Camera trails the hull a little, so turns read on the model first ──
+  P.cq.slerp(P.q, 1 - Math.exp(-dt * 7));
+  var rel = _pilotQ.copy(P.cq).invert().multiply(P.q);
+
+  var S = _frame.ship;
+  S.active = true;
+  S.near = Math.max(1e-10, Math.min(1e-6, P.nearSurf * 0.25));
+  S.x = P.x; S.y = P.y; S.z = P.z;
+  S.cqx = P.cq.x; S.cqy = P.cq.y; S.cqz = P.cq.z; S.cqw = P.cq.w;
+  S.rqx = rel.x; S.rqy = rel.y; S.rqz = rel.z; S.rqw = rel.w;
+  S.yaw = P.visYaw; S.pitch = P.visPitch;
+  S.throttle = P.throttle; S.boost = (P.auto || boost > 1) ? 1.5 : 1;
+  S.auto = P.auto;
+  S.hasTarget = !!P.target;
+  if (P.target) {
+    var T3 = P.target;
+    S.tx = T3.x; S.ty = T3.y; S.tz = T3.z; S.tr = T3.r; S.tName = T3.name;
+    S.tDist = _pilotFmtDist(Math.max(0, Math.hypot(P.x - T3.x, P.y - T3.y, P.z - T3.z) - T3.r));
+  }
+  _pilotHud(false);
+}
+
+function _pilotFmtDist(au) {
+  var km = au * 1.495979e8;
+  if (km < 10) return km.toFixed(2) + ' km';
+  if (km < 1000) return km.toFixed(0) + ' km';
+  if (au < 0.01) return Math.round(km).toLocaleString('en-US') + ' km';
+  return au.toFixed(au < 10 ? 3 : 2) + ' AU';
+}
+function _pilotFmtLight(au) {
+  var s = au * 499.004784;                      // light time: 499.005 s per AU
+  if (s < 90) return s.toFixed(1) + ' s';
+  if (s < 5400) return Math.floor(s / 60) + ' m ' + ('0' + Math.floor(s % 60)).slice(-2) + ' s';
+  return (s / 3600).toFixed(2) + ' h';
+}
+function _pilotHud(force) {
+  var P = _pilot, now = performance.now();
+  if (!force && now - P.hudT < 100) return;      // 10 Hz is plenty for text
+  P.hudT = now;
+  var v = Math.abs(P.speed), kms = v * 1.495979e8, c = v / PILOT_C;
+  var sp = document.getElementById('ph-speed'), su = document.getElementById('ph-speed-u');
+  var pc = document.getElementById('ph-c');
+  if (c >= 1) { sp.textContent = c < 100 ? c.toFixed(1) : Math.round(c).toLocaleString('en-US'); su.textContent = '× light speed'; }
+  else if (kms >= 1000) { sp.textContent = Math.round(kms).toLocaleString('en-US'); su.textContent = 'km/s'; }
+  else { sp.textContent = kms < 10 ? kms.toFixed(2) : kms.toFixed(1); su.textContent = 'km/s'; }
+  pc.classList.toggle('ftl', c >= 1);
+  pc.textContent = v === 0 ? 'AT REST'
+    : c >= 1 ? 'FASTER THAN LIGHT · NOT PHYSICAL'
+    : (c * 100 < 0.01 ? '< 0.01' : (c * 100).toFixed(2)) + '% OF LIGHT SPEED';
+  var tag = document.getElementById('ph-mode');
+  tag.textContent = P.auto ? 'AUTOPILOT' : 'MANUAL';
+  tag.classList.toggle('auto', P.auto);
+  document.getElementById('ph-near').textContent = P.near
+    ? P.near.name + ' · ' + _pilotFmtDist(Math.max(0, P.nearSurf)) : '—';
+  var rs = Math.hypot(P.x, P.y, P.z);
+  document.getElementById('ph-sun').textContent = rs.toFixed(rs < 10 ? 3 : 2) + ' AU · light ' + _pilotFmtLight(rs);
+  document.getElementById('ph-target').textContent = P.target
+    ? P.target.name + ' · ' + _pilotFmtDist(Math.max(0, Math.hypot(P.x - P.target.x, P.y - P.target.y, P.z - P.target.z) - P.target.r))
+    : 'none · click a body';
+  var dl = P.target ? Math.hypot(P.x - P.target.x, P.y - P.target.y, P.z - P.target.z) : 0;
+  document.getElementById('ph-light').textContent = P.target ? _pilotFmtLight(dl) : '—';
+  document.getElementById('ph-limit').textContent = '×' + (P.limit < 1 ? P.limit.toFixed(2) : P.limit.toFixed(1));
+}
+
+// Quick destinations (the sidebar search flies the ship anywhere else)
+function _pilotBuildChips() {
+  var wrap = document.getElementById('ph-dest');
+  var list = [
+    { type: 'planet', key: 'earth' }, { type: 'moon', id: 'moon' }, { type: 'planet', key: 'mars' },
+    { type: 'planet', key: 'jupiter' }, { type: 'moon', id: 'io' }, { type: 'planet', key: 'saturn' },
+    { type: 'moon', id: 'titan' }, { type: 'planet', key: 'neptune' }, { type: 'dwarf', id: 'pluto' },
+    { type: 'comet', id: 'halley' }, { type: 'sun' },
+  ];
+  list.forEach(function (d) {
+    var tg = null;
+    if (d.type === 'planet') { var pi = PLANETS.findIndex(function (p) { return p.key === d.key; }); if (pi >= 0) tg = { type: 'planet', idx: pi }; }
+    else if (d.type === 'moon') { if (MOONS_BY_ID[d.id]) tg = { type: 'moon', id: d.id }; }
+    else if (d.type === 'dwarf') { var di = DWARF_PLANETS.findIndex(function (x) { return x.id === d.id; }); if (di >= 0) tg = { type: 'dwarf', idx: di }; }
+    else if (d.type === 'comet') { var ci = COMETS.findIndex(function (x) { return x.id === d.id; }); if (ci >= 0) tg = { type: 'comet', idx: ci }; }
+    else tg = { type: 'sun' };
+    if (!tg) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = _bodyName(tg);
+    btn.addEventListener('click', function () { _pilotSetTarget(tg, true); btn.blur(); });
+    wrap.appendChild(btn);
+  });
+}
+
+// ── Pilot input (the map/focus handlers below hand over while piloting) ──
+var _PILOT_KEYMAP = {
+  w: 'w', s: 's', a: 'a', d: 'd', q: 'q', e: 'e',
+  arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right', shift: 'shift',
+};
+// Returns true when the key was consumed by pilot mode
+function _pilotKeyDown(e) {
+  var k = (e.key || '').toLowerCase();
+  if (!_pilot.active) {
+    if (k === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey) { enterPilot(); return true; }
+    return false;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (_PILOT_KEYMAP[k]) { _pilotKeys[_PILOT_KEYMAP[k]] = true; e.preventDefault(); return true; }
+  if (k === 'escape' || k === 'p') { exitPilot(); return true; }
+  if (k === 'x') { _pilot.auto = false; _pilot.autoV = 0; _pilot.throttle = 0; _pilot.speed = 0; return true; }
+  if (k === 't') { _pilotTargetAhead(); return true; }
+  if (k === 'g') {
+    if (!_pilot.target) _pilotTargetAhead();
+    if (_pilot.target) { if (_pilot.auto) { _pilot.auto = false; _pilot.autoV = 0; } else _pilotEngage(); }
+    _pilotHud(true);
+    return true;
+  }
+  return false;
+}
+document.addEventListener('keyup', function (e) {
+  var k = (e.key || '').toLowerCase();
+  if (_PILOT_KEYMAP[k]) _pilotKeys[_PILOT_KEYMAP[k]] = false;
+});
+window.addEventListener('blur', function () { _pilotKeys = {}; _pilotDrag = null; });
+
+function _pilotMouseMove(e) {
+  if (!_pilotDrag) return;
+  if (!(e.buttons & 1)) { _pilotDrag = null; return; }      // released outside the canvas
+  var dx = e.clientX - _pilotDrag.x, dy = e.clientY - _pilotDrag.y;
+  _pilotDrag.x = e.clientX; _pilotDrag.y = e.clientY;
+  if (!_pilotDrag.moved && Math.hypot(e.clientX - _pilotDrag.sx, e.clientY - _pilotDrag.sy) < 4) return;
+  _pilotDrag.moved = true;
+  // Steer like a stick: drag right = turn right, drag up = nose up
+  _pilot.dragYaw -= dx * 0.0032;
+  _pilot.dragPitch -= dy * 0.0032;
+}
+function _pilotClick(e, engage) {
+  if (Math.hypot(e.clientX - _panSX, e.clientY - _panSY) > 5) return;   // that was a steering drag
+  var rc = cv.getBoundingClientRect();
+  var hit = _focusHitTest(e.clientX - rc.left, e.clientY - rc.top);
+  if (hit) _pilotSetTarget(hit, engage);
+}
+document.getElementById('pilot-btn').addEventListener('click', function () { enterPilot(); this.blur(); });
+document.getElementById('pilot-exit-btn').addEventListener('click', exitPilot);
+
 // ─── Camera controls (manual — no OrbitControls) ─────────────────────────────
 // Left-drag orbits (theta/phi), right-drag or shift+left-drag pans the target
 // in the screen plane, wheel dollies exponentially. Inertia decays in tick().
@@ -2932,6 +3462,13 @@ function camPan(dx, dy) {
 }
 
 cv.addEventListener('mousedown', e => {
+  if (_pilot.active) {
+    if (e.button === 0) {
+      _pilotDrag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false };
+      _panSX = e.clientX; _panSY = e.clientY;     // click-vs-drag test in _pilotClick
+    }
+    return;
+  }
   if (e.button !== 0 && e.button !== 2) return;
   // Arm only — the drag activates in mousemove after a 4px threshold, so
   // clicks (and double-clicks) never nudge the camera.
@@ -2944,6 +3481,7 @@ cv.addEventListener('mousedown', e => {
 });
 
 cv.addEventListener('mouseup', () => {
+  _pilotDrag = null;
   _dragArmed = null;
   if (_dragMode) { _dragMode = null; cv.style.cursor = 'grab'; }
 });
@@ -2992,11 +3530,13 @@ function _handleDoubleActivate(mx, my) {
 }
 
 cv.addEventListener('dblclick', e => {
+  if (_pilot.active) { _pilotClick(e, true); return; }
   const r = cv.getBoundingClientRect();
   _handleDoubleActivate(e.clientX - r.left, e.clientY - r.top);
 });
 
 cv.addEventListener('mousemove',e=>{
+  if (_pilot.active) { _pilotMouseMove(e); return; }
   const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
   _mouseX = x; _mouseY = y;          // wheel handler zooms toward this point
   // e.buttons is the LIVE button state: when the button was released outside
@@ -3154,6 +3694,7 @@ cv.addEventListener('mousemove',e=>{
 });
 
 cv.addEventListener('mouseleave',()=>{
+  if (_pilot.active) return;                  // a steering drag may leave and re-enter the canvas
   _dragMode=null; _dragArmed=null;
   state.hoverId=null; state.hoverPlanet=null; state.hoverMoon=null;
   state.hoverDwarf=null; state.hoverComet=null;
@@ -3161,6 +3702,7 @@ cv.addEventListener('mouseleave',()=>{
   cv.style.cursor='grab';
 });
 cv.addEventListener('click',e=>{
+  if (_pilot.active) { _pilotClick(e, false); return; }
   // A click that travelled more than 5px from the mousedown was a camera
   // drag, not a selection — the browser still fires click on drag-release.
   // (mouseup only resets the drag state; selection is processed here.)
@@ -3188,6 +3730,12 @@ cv.addEventListener('click',e=>{
 });
 cv.addEventListener('wheel',e=>{
   e.preventDefault();
+  if (_pilot.active) {
+    // Wheel = thrust limit (×0.02 … ×25): the fine control for close passes
+    _pilot.limit = Math.max(0.02, Math.min(25, _pilot.limit * (e.deltaY > 0 ? 0.8 : 1.25)));
+    _pilotHud(true);
+    return;
+  }
   // Exponential dolly — continuous zoom from the full system to a surface
   const factor = e.deltaY > 0 ? 1.10 : 0.90;
   _magDolly = null;                            // the user takes over the dolly
@@ -3223,6 +3771,7 @@ cv.addEventListener('wheel',e=>{
 },{passive:false});
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
+  if(_pilotKeyDown(e))return;
   if(e.key==='Escape'&&state.focusMode){exitFocus();return;}
   if((e.key==='m'||e.key==='M')&&state.focusMode&&_magKey(state.focusTarget)){setMagField(!state.showMag);return;}
   if((e.key==='f'||e.key==='F')&&!state.focusTarget){
