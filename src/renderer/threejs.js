@@ -549,222 +549,310 @@ function generateRockTexture(seed, resolution) {
   return { albedoTexture: albedoTexture, normalTexture: normalTexture, roughnessTexture: roughnessTexture };
 }
 
-/* ── Comet particle tails (dust + ion) ───────────────────────────────────── */
-// One instance per comet, two pooled THREE.Points systems living in the MAIN
-// scene (so the tail renders in focus mode too). Particle state is kept
-// CPU-side; the position/color buffers are rewritten each active frame.
+/* ── Comet tails (dust + ion), procedural on the GPU ─────────────────────── */
+// One instance per comet, two THREE.Points systems in the MAIN scene (so the
+// tail renders in focus mode too). Nothing is simulated on the CPU: every
+// particle owns four fixed random seeds and the vertex shader derives its
+// position, size and brightness from those seeds plus a handful of uniforms
+// (comet position, anti-solar axis, trailing axis, tail length, activity,
+// time). That gives:
+//  - no gaps or clumps at any time speed (a stateful emitter spaces particles
+//    by how far the comet moved per frame; this has no such dependency),
+//  - tens of thousands of particles for almost no CPU cost,
+//  - sprites sized in WORLD units and projected to pixels, so the tail keeps
+//    its shape from the wide map to a close focus (clamped to a pixel range
+//    so nothing balloons or vanishes),
+//  - round soft sprites (gaussian falloff to exactly zero at the edge), which
+//    is what removes the square, spaced-out look.
+// The scene uses logarithmicDepthBuffer, but these sprites draw with
+// depthTest off and additive blending, so no depth chunks are needed.
 //
-// Where this diverges from a naive reading of the brief, and why:
-//  • PointsMaterial can't size points per-particle (that needs a ShaderMaterial,
-//    which would also have to re-implement logarithmicDepthBuffer — the scene
-//    uses it). So point size is the fixed material size, and each particle's
-//    FADE is premultiplied into its RGB: additive blending draws RGB→0 as
-//    nothing, which is exactly the per-particle "alpha" the brief asks for.
-//  • sizeAttenuation is FALSE (constant px), not true. With attenuation, a
-//    point sprite at AU-scale focus distance (~5e-5 AU) balloons to fill the
-//    whole screen in an opaque wash — the same reason the 41k MPC cloud uses
-//    sizeAttenuation:false. Constant-px dots keep the tail crisp at every zoom.
-//  • simDt is a frame-pace factor (~1 at 60 fps), NOT simulation days. The
-//    emission counts, velocities and the fixed pool are all per-frame; scaling
-//    them by sim-days would drain the pool and explode the tail whenever the
-//    clock is fast-forwarded.
-//  • The dust tail's curve is emergent: particles are emitted at the comet's
-//    CURRENT position every frame, so as the comet moves along its orbit the
-//    trail of older (world-fixed) dust bends on its own — no per-particle
-//    force-curl needed (the radial accel is colinear with anti-solar anyway).
+// Physical model, kept simple on purpose:
+//  - Dust follows a syndyne-style fan: each particle has a beta (radiation
+//    pressure over gravity). High beta leaves fast and flies nearly straight
+//    anti-solar, low beta lags and bends toward the trailing side of the orbit.
+//  - Ion is a set of thin straight rays along the anti-solar line with a small
+//    wavy kink, because plasma follows the solar wind, not the orbit.
+//  - Surface brightness falls as each particle spreads (flux conservation:
+//    alpha scales with 1/size), plus a fade with age along the tail.
 
-var COMET_N_DUST = 800;
-var COMET_N_ION  = 500;
+var COMET_N_DUST = 40000;
+var COMET_N_ION  = 6000;
+var COMET_N_COMA = 14000;
+
+// Radical inverse (Halton): low-discrepancy samples, so the particles cover the
+// tail evenly instead of clumping the way plain Math.random() does. This is what
+// removes the blotchy, mottled look of large soft sprites.
+function cometHalton(i, base) {
+  var f = 1, r = 0;
+  while (i > 0) { f /= base; r += f * (i % base); i = Math.floor(i / base); }
+  return r;
+}
+
+var COMET_TAIL_VERT = [
+  'uniform vec3  uComet;',
+  'uniform vec3  uAnti;',
+  'uniform vec3  uTrail;',
+  'uniform float uLen;',
+  'uniform float uAct;',
+  'uniform float uTime;',
+  'uniform float uFlow;',
+  'uniform float uPxScale;',
+  'uniform float uMinPx;',
+  'uniform float uMaxPx;',
+  'uniform float uRefPx;',
+  'uniform float uGain;',
+  'uniform vec3  uHot;',
+  'uniform vec3  uCold;',
+  'attribute vec4 aSeed;',
+  'varying vec4 vColor;',
+  '',
+  'void main() {',
+  '  float a = fract(aSeed.x + uTime * uFlow);',      // age along the tail, 0..1
+  '  float s = pow(a, 1.55);',                         // more particles near the head
+  '  vec3 up = abs(uAnti.z) > 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);',
+  '  vec3 p1 = normalize(cross(uAnti, up));',
+  '  vec3 p2 = cross(uAnti, p1);',
+  '  float u1 = clamp(aSeed.y, 0.001, 1.0);',
+  '  float r  = sqrt(-2.0 * log(u1));',
+  '  float g1 = r * cos(6.2831853 * aSeed.w);',
+  '  float g2 = r * sin(6.2831853 * aSeed.w);',
+  '  vec3 pos;',
+  '  float wSize;',
+  '  float tint = 0.0;',
+  '#ifdef ION',
+  '  float ray   = floor(aSeed.z * 9.0);',
+  '  float ph    = fract(sin(ray * 12.9898) * 43758.5453);',
+  '  float th    = 6.2831853 * ph;',
+  '  float rho   = (0.2 + 0.8 * fract(ph * 7.31)) * (0.003 + 0.014 * s) * uLen;',
+  '  vec3 lat    = (p1 * cos(th) + p2 * sin(th)) * rho;',
+  '  lat += (p1 * g1 + p2 * g2) * (0.0006 + 0.0022 * s) * uLen;',
+  '  float kink  = sin(s * 9.0 + th + uTime * 0.7) * 0.012 * s * uLen;',
+  '  pos = uComet + uAnti * (s * uLen) + lat + p1 * kink + uTrail * (s * s * 0.05 * uLen);',
+  '  wSize = uLen * (0.0012 + 0.028 * s);',
+  '#else',
+  '#ifdef COMA',
+  '  float k3  = sqrt(-2.0 * log(clamp(fract(aSeed.x * 57.31 + aSeed.y * 13.7), 0.001, 1.0)));',
+  '  float g3  = k3 * cos(6.2831853 * fract(aSeed.z * 91.7 + aSeed.w * 3.3));',
+  '  vec3 dir  = normalize(vec3(g1, g2, g3) + 1e-4);',
+  '  float ca  = dot(dir, uAnti);',                       // > 0 on the tail side
+  '  vec3 off;',
+  '  if (aSeed.z < 0.2) {',
+  // sunward fountain: leaves toward the Sun, then the solar wind sweeps it back
+  '    vec3 jd  = normalize(-uAnti * 0.75 + (p1 * g1 + p2 * g2) * 0.35);',
+  '    float jo = sin(3.14159265 * min(a * 1.15, 1.0));',
+  '    off = jd * (uLen * 1.15 * jo) + uAnti * (uLen * 1.7 * a * a) + uTrail * (uLen * 0.5 * a * a);',
+  '  } else {',
+  // shell: compressed on the sunward side, drawn out toward the tail
+  '    float sc = 0.7 + 1.7 * max(ca, 0.0) * a;',
+  '    off = dir * (uLen * pow(a, 2.0) * sc) + uAnti * (uLen * 0.6 * a * a);',
+  '  }',
+  '  pos = uComet + off;',
+  '  wSize = uLen * (0.10 + 0.30 * a);',
+  '  if (aSeed.z < 0.2) wSize *= 1.8;',
+  '#else',
+  '  float beta  = pow(aSeed.z, 0.55);',
+  '  float reach = s * mix(0.55, 1.0, beta);',
+  '  float bend  = s * s * (1.0 - beta) * 0.55;',
+  '  float wid   = uLen * (0.012 + 0.22 * s);',
+  '  vec3 lat    = (p1 * g1 + p2 * g2 * 0.6) * wid * 0.5;',
+  '  tint = clamp(length(vec2(g1, g2 * 0.6)) * 0.22, 0.0, 1.0);',
+  '  pos = uComet + uAnti * (reach * uLen) + uTrail * (bend * uLen) + lat;',
+  '  wSize = uLen * (0.004 + 0.075 * s);',
+  '#endif',
+  '#endif',
+  '  vec4 mv = modelViewMatrix * vec4(pos, 1.0);',
+  '  float depth = -mv.z;',
+  '  if (depth <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; vColor = vec4(0.0); return; }',
+  '  float px = clamp(wSize * uPxScale / depth, uMinPx, uMaxPx);',
+  '  float fade = smoothstep(0.0, 0.05, a) * pow(1.0 - a, 0.85);',
+  '  float spread = uRefPx / max(px, uRefPx);',
+  '  float alpha = min(1.0, uGain * uAct * fade * spread);',
+  '  vColor = vec4(mix(uHot, uCold, clamp(pow(s, 0.6) * 0.65 + tint, 0.0, 1.0)), alpha);',
+  '  gl_PointSize = px;',
+  '  gl_Position = projectionMatrix * mv;',
+  '}',
+].join('\n');
+
+var COMET_TAIL_FRAG = [
+  'varying vec4 vColor;',
+  'void main() {',
+  '  vec2 c = gl_PointCoord - 0.5;',
+  '  float d2 = dot(c, c) * 4.0;',                    // 0 at center, 1 at the edge
+  '  if (d2 >= 1.0) discard;',
+  '  float falloff = exp(-d2 * 2.3) * (1.0 - d2);',   // soft, exactly 0 at the edge
+  '  gl_FragColor = vec4(vColor.rgb, vColor.a * falloff);',
+  '  #include <encodings_fragment>',
+  '}',
+].join('\n');
 
 class CometTail {
-  constructor(scene, glowTex /*, tailColor (unused — spec fixes the palettes) */) {
+  /**
+   * @param {THREE.Scene} scene
+   * @param {THREE.Texture} glowTex  unused (sprites are procedural), kept for API
+   * @param {*} tailColor            unused (palette is fixed below)
+   * @param {Float32Array} [orbitPts] stride-3 orbit samples in order of motion;
+   *        the local tangent gives the trailing direction even when paused
+   */
+  constructor(scene, glowTex, tailColor, orbitPts) {
     this._scene = scene;
-    // Palette tuned to the reference photo: a brilliant WHITE head fading
-    // through blue to a blue-violet tail tip (not the physical yellow-dust /
-    // blue-ion split — the user's reference art wins here). Linear space.
-    this._dustHot  = new THREE.Color(0xffffff).convertSRGBToLinear();   // white head core
-    this._dustCold = new THREE.Color(0x88aaff).convertSRGBToLinear();   // → blue
-    this._ionHot   = new THREE.Color(0xcce4ff).convertSRGBToLinear();   // pale blue
-    this._ionCold  = new THREE.Color(0x7766cc).convertSRGBToLinear();   // → blue-violet tip
+    this._orbitPts = orbitPts || null;
+    // Same palette as before: white head fading through blue to a blue-violet
+    // tip (linear space). Dust and ion get their own pair.
+    this._dustHot  = new THREE.Color(0xffffff).convertSRGBToLinear();
+    this._dustCold = new THREE.Color(0x88aaff).convertSRGBToLinear();
+    this._ionHot   = new THREE.Color(0xa9cfff).convertSRGBToLinear();
+    this._ionCold  = new THREE.Color(0x7766cc).convertSRGBToLinear();
+    this._comaHot  = new THREE.Color(0xeaf2ff).convertSRGBToLinear();
+    this._comaCold = new THREE.Color(0x88aaff).convertSRGBToLinear();
     this._smoothActivity = 0;
-    this._anti = new THREE.Vector3();
-    // Dust curve state: the tail bends toward the comet's TRAILING direction
-    // (−velocity), derived from the last position each frame.
-    this._prevComet = new THREE.Vector3();
-    this._vel = new THREE.Vector3();
-    this._curve = new THREE.Vector3();
-    this._hasPrev = false;
-    this.dust = this._makeSystem(COMET_N_DUST, 4, glowTex);
-    this.ion  = this._makeSystem(COMET_N_ION,  3, glowTex);
+    this._time = 0;
+    this._anti  = new THREE.Vector3();
+    this._trail = new THREE.Vector3(0, 1, 0);
+    this._sz    = new THREE.Vector2();
+    this._maxPointPx = 0;
+    // Live multipliers (handy for tuning from the console: comet.tail.tune.dust = 2)
+    this.tune = { dust: 1.0, ion: 1.0, coma: 1.0 };
+    var m = (typeof window !== 'undefined' && window.innerWidth < 768) ? 0.5 : 1;   // fill-rate on phones
+    this.dust = this._makeSystem(Math.round(COMET_N_DUST * m), 'dust');
+    this.ion  = this._makeSystem(Math.round(COMET_N_ION  * m), 'ion');
+    this.coma = this._makeSystem(Math.round(COMET_N_COMA * m), 'coma');
     scene.add(this.dust.points);
     scene.add(this.ion.points);
+    scene.add(this.coma.points);
   }
 
-  _makeSystem(n, size, glowTex) {
-    var positions = new Float32Array(n * 3);
-    var colors    = new Float32Array(n * 3);
-    var sizes     = new Float32Array(n);          // kept per brief (PointsMaterial ignores it)
+  _makeSystem(n, kind) {
+    var isIon = kind === 'ion', isComa = kind === 'coma';
+    var seeds = new Float32Array(n * 4);
+    var bases = [2, 3, 5, 7], off = [Math.random(), Math.random(), Math.random(), Math.random()];
+    for (var i = 0; i < n; i++) {
+      for (var k = 0; k < 4; k++) {
+        var h = cometHalton(i + 1, bases[k]) + off[k];     // random per-system shift
+        seeds[i * 4 + k] = h - Math.floor(h);
+      }
+    }
     var geo = new THREE.BufferGeometry();
-    var pa = new THREE.BufferAttribute(positions, 3); pa.setUsage(THREE.DynamicDrawUsage);
-    var ca = new THREE.BufferAttribute(colors, 3);    ca.setUsage(THREE.DynamicDrawUsage);
-    geo.setAttribute('position', pa);
-    geo.setAttribute('color', ca);
-    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    var mat = new THREE.PointsMaterial({
-      size: size, sizeAttenuation: false, vertexColors: true,
-      map: glowTex, transparent: true, opacity: 1.0,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-      // depthTest off: additive glow particles should never be occluded, and
-      // it sidesteps a logarithmicDepthBuffer depth-fight that dropped the tail
-      // at the close focus-mode camera distance.
+    // 'position' is never read by the shader but three.js sizes the draw call
+    // from it
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
+    var self = this;
+    var mat = new THREE.ShaderMaterial({
+      defines: isIon ? { ION: 1 } : (isComa ? { COMA: 1 } : {}),
+      uniforms: {
+        uComet:   { value: new THREE.Vector3() },
+        uAnti:    { value: new THREE.Vector3(1, 0, 0) },
+        uTrail:   { value: new THREE.Vector3(0, 1, 0) },
+        uLen:     { value: 0.0 },
+        uAct:     { value: 0.0 },
+        uTime:    { value: 0.0 },
+        uFlow:    { value: isIon ? 0.16 : (isComa ? 0.12 : 0.065) },
+        uPxScale: { value: 800.0 },
+        uMinPx:   { value: 1.5 },
+        uMaxPx:   { value: 96.0 },
+        uRefPx:   { value: 6.0 },
+        uGain:    { value: isIon ? 0.12 : (isComa ? 0.17 : 0.105) },
+        uHot:     { value: (isIon ? this._ionHot  : (isComa ? this._comaHot  : this._dustHot)).clone() },
+        uCold:    { value: (isIon ? this._ionCold : (isComa ? this._comaCold : this._dustCold)).clone() },
+      },
+      vertexShader: COMET_TAIL_VERT,
+      fragmentShader: COMET_TAIL_FRAG,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
       depthTest: false,
     });
     var points = new THREE.Points(geo, mat);
     points.frustumCulled = false;
-    points.renderOrder = 2;               // draw after the opaque nucleus/scene
+    points.renderOrder = 2;               // after the opaque nucleus/scene
     points.visible = false;
-    var parts = new Array(n);
-    for (var i = 0; i < n; i++) {
-      parts[i] = { x:0,y:0,z:0, vx:0,vy:0,vz:0, ox:0,oy:0,oz:0, life:0, maxLife:0, alive:false };
-    }
-    return { geo:geo, mat:mat, points:points, parts:parts,
-             positions:positions, colors:colors, n:n, cursor:0, alive:0 };
+    // Pixel scale depends on the live camera + drawing buffer, so refresh it
+    // right before the draw
+    points.onBeforeRender = function (renderer, scene, camera) {
+      renderer.getDrawingBufferSize(self._sz);
+      var pr = renderer.getPixelRatio();
+      if (!self._maxPointPx) {
+        var gl = renderer.getContext();
+        var rng = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
+        self._maxPointPx = rng ? rng[1] : 64;
+      }
+      var u = mat.uniforms;
+      u.uPxScale.value = 0.5 * self._sz.y * camera.projectionMatrix.elements[5];
+      u.uMinPx.value   = 1.5 * pr;
+      u.uMaxPx.value   = Math.min(72 * pr, self._maxPointPx);
+      u.uRefPx.value   = 6.0 * pr;
+      mat.uniformsNeedUpdate = true;
+    };
+    return { geo: geo, mat: mat, points: points, n: n };
   }
 
   activity() { return this._smoothActivity; }
 
+  // Trailing direction (opposite to the velocity) from the orbit polyline:
+  // nearest sample, then the local tangent. Works while paused or scrubbing.
+  _updateTrail(cometPos) {
+    var pts = this._orbitPts;
+    if (!pts) return;
+    var N = pts.length / 3, best = 0, bd = Infinity;
+    for (var k = 0; k < N; k++) {
+      var dx = pts[k*3] - cometPos.x, dy = pts[k*3+1] - cometPos.y, dz = pts[k*3+2] - cometPos.z;
+      var d = dx*dx + dy*dy + dz*dz;
+      if (d < bd) { bd = d; best = k; }
+    }
+    var n1 = ((best + 1) % N) * 3, p1 = ((best - 1 + N) % N) * 3;
+    this._trail.set(pts[p1] - pts[n1], pts[p1+1] - pts[n1+1], pts[p1+2] - pts[n1+2]);
+    // Keep only the part perpendicular to the anti-solar axis
+    var dot = this._trail.dot(this._anti);
+    this._trail.addScaledVector(this._anti, -dot);
+    if (this._trail.lengthSq() < 1e-18) this._trail.set(-this._anti.y, this._anti.x, 0);
+    this._trail.normalize();
+  }
+
   update(cometPos, sunPos, distSol, simDt, focusBoost) {
     var dt = simDt || 1.0;
-    // Bigger constant-px particles while this comet is the focus target — up
-    // close the map-sized dots are invisible. (sizeAttenuation is off, so this
-    // is a straight pixel size, not a distance balloon.)
-    this.dust.mat.size = focusBoost ? 24 : 4;
-    this.ion.mat.size  = focusBoost ? 12 : 3;
-    // anti-solar unit vector (Sun at origin → normalize(cometPos))
     this._anti.copy(cometPos).sub(sunPos);
     var d = this._anti.length() || 1e-9;
     this._anti.multiplyScalar(1 / d);
 
-    // Curve direction = comet's trailing side (−velocity). BOTH tails point
-    // anti-solar; the dust just bends this way, the ion stays straight.
-    this._vel.copy(cometPos).sub(this._prevComet);
-    var vl = this._vel.length();
-    if (this._hasPrev && vl > 1e-12) this._curve.copy(this._vel).multiplyScalar(-1 / vl);
-    else this._curve.set(0, 0, 0);
-    this._prevComet.copy(cometPos);
-    this._hasPrev = true;
-
     var activity = Math.max(0, (COMET_ACTIVE_AU - distSol) / COMET_ACTIVE_AU);
-    // Exponential smoothing → the tail grows/shrinks over seconds, not instantly
+    // Exponential smoothing: the tail grows/shrinks over seconds, not instantly
     this._smoothActivity = this._smoothActivity * 0.98 + activity * 0.02;
     var act = this._smoothActivity;
 
-    // Fully idle: hide the Points and don't iterate the pools (Part 7)
-    if (act < 0.005 && this.dust.alive === 0 && this.ion.alive === 0) {
-      this.dust.points.visible = false;
-      this.ion.points.visible = false;
-      return;
-    }
+    // Fully idle: hide both systems and skip all uniform work
+    if (act < 0.005) { this.hide(); return; }
 
-    var emit = Math.floor(act * (focusBoost ? 30 : 12));    // 0–30 new per frame
-    if (emit > 0) {
-      this._emit(this.dust, emit, cometPos, 'dust', act);
-      this._emit(this.ion,  emit, cometPos, 'ion',  act);
-    }
-    this._simDust(this.dust, dt, cometPos, act);
-    this._simIon(this.ion, dt, cometPos, act);
+    this._updateTrail(cometPos);
+    this._time += dt / 60;                      // dt is a ~1-at-60fps pace factor
 
-    this.dust.points.visible = this.dust.alive > 0;
-    this.ion.points.visible  = this.ion.alive > 0;
-  }
-
-  _emit(sys, count, cometPos, kind, act) {
-    for (var e = 0; e < count; e++) {
-      var p = sys.parts[sys.cursor];
-      if (!p.alive) sys.alive++;                 // recycling the oldest live slot is fine
-      sys.cursor = (sys.cursor + 1) % sys.n;
-      p.alive = true; p.life = 0;
-      // Emission origin: a tight random sphere around the nucleus. Kept well
-      // inside the comet focus-framing distance (~5e-5 AU) so the camera never
-      // sits inside the emission cloud.
-      var er = 8e-6;
-      p.x = cometPos.x + (Math.random()*2-1)*er;
-      p.y = cometPos.y + (Math.random()*2-1)*er;
-      p.z = cometPos.z + (Math.random()*2-1)*er;
-      // Both tails are analytic (anchored to the comet, oriented anti-solar);
-      // store a tiny per-particle offset so each tail keeps some width. Dust
-      // lives longer than ion.
-      p.maxLife = (kind === 'dust') ? (180 + Math.random()*120)   // 3–5 s @60fps
-                                    : ( 80 + Math.random()* 60);
-      var sp = (kind === 'dust') ? 0.00004 : 0.00002;
-      p.ox = (Math.random()*2-1)*sp;
-      p.oy = (Math.random()*2-1)*sp;
-      p.oz = (Math.random()*2-1)*sp;
+    var boost = focusBoost ? 1.25 : 1.0;
+    // Lengths in AU: dust tail, ion tail, coma radius (tied to the ion length)
+    var sys = [this.dust, this.ion, this.coma];
+    var lens = [act * 1.5, act * 1.5, act * 1.5 * 0.055];
+    var tn = [this.tune.dust, this.tune.ion, this.tune.coma];
+    for (var i = 0; i < 3; i++) {
+      var u = sys[i].mat.uniforms;
+      u.uComet.value.copy(cometPos);
+      u.uAnti.value.copy(this._anti);
+      u.uTrail.value.copy(this._trail);
+      u.uLen.value  = lens[i];
+      u.uAct.value  = Math.min(1, 0.35 + act) * boost * tn[i];
+      u.uTime.value = this._time;
+      sys[i].points.visible = true;
     }
   }
 
-  // Dust: analytic, anchored to the comet like the ion tail so BOTH point
-  // anti-solar — but shorter, and bent toward the trailing side (this._curve)
-  // so it reads as the classic gently-curved dust tail. (The old world-space
-  // free-integration turned into an ORBITAL trail once the sim clock advanced
-  // — the comet jumps far per frame — so it diverged ~90° from anti-solar.)
-  _simDust(sys, dt, cometPos, act) {
-    var dustLength = act * 0.6;                 // shorter than the ion's 1.5 AU
-    var ax = this._anti.x, ay = this._anti.y, az = this._anti.z;
-    var cx = this._curve.x, cy = this._curve.y, cz = this._curve.z;
-    var pos = sys.positions, col = sys.colors, parts = sys.parts;
-    var hot = this._dustHot, cold = this._dustCold;
-    for (var i = 0; i < sys.n; i++) {
-      var p = parts[i], i3 = i*3;
-      if (!p.alive) { col[i3]=col[i3+1]=col[i3+2]=0; continue; }
-      p.life += dt;
-      if (p.life >= p.maxLife) { p.alive=false; sys.alive--; col[i3]=col[i3+1]=col[i3+2]=0; continue; }
-      var f = p.life/p.maxLife;
-      var reach = f * dustLength;
-      var bend = f * f * act * 0.35;             // quadratic → gentle curve
-      var fan = 1 + f*30;
-      pos[i3]   = cometPos.x + ax*reach + cx*bend + p.ox*fan;
-      pos[i3+1] = cometPos.y + ay*reach + cy*bend + p.oy*fan;
-      pos[i3+2] = cometPos.z + az*reach + cz*bend + p.oz*fan;
-      var a = Math.sin(Math.PI*f);
-      col[i3]   = (hot.r + (cold.r-hot.r)*f) * a;
-      col[i3+1] = (hot.g + (cold.g-hot.g)*f) * a;
-      col[i3+2] = (hot.b + (cold.b-hot.b)*f) * a;
-    }
-    sys.geo.attributes.position.needsUpdate = true;
-    sys.geo.attributes.color.needsUpdate = true;
-  }
-
-  // Ion: no inertia — position is analytic along the CURRENT anti-solar ray,
-  // so the tail is straight and anchored to the comet (plus a small fan).
-  _simIon(sys, dt, cometPos, act) {
-    var ionLength = act * 1.5;      // AU
-    var pos = sys.positions, col = sys.colors, parts = sys.parts;
-    var hot = this._ionHot, cold = this._ionCold;
-    var ax = this._anti.x, ay = this._anti.y, az = this._anti.z;
-    for (var i = 0; i < sys.n; i++) {
-      var p = parts[i], i3 = i*3;
-      if (!p.alive) { col[i3]=col[i3+1]=col[i3+2]=0; continue; }
-      p.life += dt;
-      if (p.life >= p.maxLife) { p.alive=false; sys.alive--; col[i3]=col[i3+1]=col[i3+2]=0; continue; }
-      var f = p.life/p.maxLife, reach = f * ionLength, fan = 1 + f*40;
-      pos[i3]   = cometPos.x + ax*reach + p.ox*fan;
-      pos[i3+1] = cometPos.y + ay*reach + p.oy*fan;
-      pos[i3+2] = cometPos.z + az*reach + p.oz*fan;
-      var a = Math.sin(Math.PI*f);
-      col[i3]   = (hot.r + (cold.r-hot.r)*f) * a;
-      col[i3+1] = (hot.g + (cold.g-hot.g)*f) * a;
-      col[i3+2] = (hot.b + (cold.b-hot.b)*f) * a;
-    }
-    sys.geo.attributes.position.needsUpdate = true;
-    sys.geo.attributes.color.needsUpdate = true;
+  hide() {
+    this.dust.points.visible = false;
+    this.ion.points.visible = false;
+    this.coma.points.visible = false;
   }
 
   dispose() {
-    [this.dust, this.ion].forEach(function (s) {
+    [this.dust, this.ion, this.coma].forEach(function (s) {
       if (s.points.parent) s.points.parent.remove(s.points);
       s.geo.dispose();
-      if (s.mat.map) { /* shared glow texture — do NOT dispose */ }
       s.mat.dispose();
     });
   }
@@ -1288,7 +1376,7 @@ class ThreeJSRenderer {
       self.scene.add(orbit);
 
       // Particle tails (dust + ion) — pooled Points added to the main scene
-      var tail = new CometTail(self.scene, self._glowTexture, def.tail_color);
+      var tail = new CometTail(self.scene, self._glowTexture, def.tail_color, cd.orbitPts);
 
       return {
         def: def, group: group, mesh: mesh, model: null,
@@ -2083,7 +2171,7 @@ class ThreeJSRenderer {
       c.orbit.visible = visible && !!state.showOrbits;
       if (!visible) {
         c.screen = null; c.coma.visible = false; c.light.intensity = 0;
-        if (c.tail) { c.tail.dust.points.visible = false; c.tail.ion.points.visible = false; }
+        if (c.tail) c.tail.hide();
         continue;
       }
       c.group.position.set(f.x, f.y, f.z);
