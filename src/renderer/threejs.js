@@ -174,6 +174,72 @@ var DWARF_PLANETS = [
     r: 7.94e-6,            // 1188 km / 1.496e8
     color: 0xc8b89a, minPx: 3,
   },
+  // ── Trans-Neptunian dwarf planets ─────────────────────────────────────────
+  // Heliocentric osculating elements, each at its OWN epoch_jd (propagated to
+  // the sim epoch by radar.ejs _elemsFromEpoch, same as the comets).
+  // Sources, read 2026-11-10 (JPL itself was not reachable from the build box):
+  //   [S] JPL Small-Body Database elements as republished by TheSkyLive
+  //   [W] Wikipedia infobox, which cites JPL SBDB
+  // Cross-check: heliocentric distance on 1 Jan 2026 vs the JPL Horizons values
+  // quoted in Wikipedia's list of most distant objects: Eris 95.53 vs 95.5 AU,
+  // Gonggong 89.70 vs 89.7, Sedna 83.03 vs 83.0. Haumea, Makemake, Quaoar and
+  // Orcus have NO independent check yet.
+  // r = mean radius. Colors are artistic approximations of the published
+  // spectral slopes (neutral/white vs red), not measured RGB. No shape models:
+  // all render as spheres (Haumea is really a triaxial ellipsoid with a ring).
+  {
+    id: 'eris', name: 'Eris', body: 'eris', epoch_jd: 2460800.5,       // [S] 4 May 2025
+    a: 68.05060149, e: 0.43567548, i: 43.82162477, node: 36.046036082, w: 150.714363559,
+    M: 211.032077671, T: 205043.676,
+    r: 7.77e-6,            // 1163 km
+    color: 0xd9d9d6, minPx: 3,
+  },
+  {
+    id: 'haumea', name: 'Haumea', body: 'haumea', epoch_jd: 2461200.5, // [S] 8 Jun 2026
+    a: 43.06029024, e: 0.19444301, i: 28.20847393, node: 121.786056133, w: 240.690547251,
+    M: 223.210411881, T: 103208.1173,
+    r: 5.16e-6,            // 1544 km mean diameter / 2
+    color: 0xd2d6da, minPx: 3,
+  },
+  {
+    id: 'makemake', name: 'Makemake', body: 'makemake', epoch_jd: 2460600.5, // [S] 16 Oct 2024
+    a: 45.38390777, e: 0.16353397, i: 29.03373563, node: 79.260520400, w: 296.753831617,
+    M: 168.416838182, T: 111673.7908,
+    r: 4.78e-6,            // 715 km
+    color: 0xc49a7a, minPx: 3,
+  },
+  {
+    id: 'gonggong', name: 'Gonggong', body: 'gonggong', epoch_jd: 2461000.5, // [W] 21 Nov 2025
+    a: 66.895, e: 0.50318, i: 30.8664, node: 336.8401, w: 206.6442,
+    M: 111.384, T: 199837.0,
+    r: 4.11e-6,            // 615 km
+    color: 0xb0624a, minPx: 3,
+  },
+  {
+    id: 'quaoar', name: 'Quaoar', body: 'quaoar', epoch_jd: 2459000.5, // [W] 31 May 2020
+    a: 43.694, e: 0.04106, i: 7.9895, node: 188.927, w: 147.480,
+    M: 301.104, T: 105495.0,
+    r: 3.67e-6,            // 1097.6 km volume-equivalent diameter / 2
+    color: 0xa87860, minPx: 3,
+  },
+  {
+    id: 'orcus', name: 'Orcus', body: 'orcus', epoch_jd: 2459000.5,   // [W] 31 May 2020
+    a: 39.174, e: 0.22701, i: 20.592, node: 268.799, w: 72.310,
+    M: 181.735, T: 89557.0,
+    r: 3.04e-6,            // 910 km / 2
+    color: 0x9aa0a8, minPx: 3,
+  },
+  // Sedna: heliocentric osculating elements of an a≈500 AU orbit wobble with
+  // the Sun's motion about the barycenter (a = 506 AU at one epoch, 532 at
+  // another), so two-body propagation is only trustworthy near the epoch. This
+  // set gives perihelion in ~2075 (published: ≈ July 2076).
+  {
+    id: 'sedna', name: 'Sedna', body: 'sedna', epoch_jd: 2460000.5,   // [S] 24 Feb 2023
+    a: 532.30647040, e: 0.85650695, i: 11.93034, node: 144.258477640, w: 310.868790093,
+    M: 358.469407879, T: 4485812.0,                                  // 12,281.48 yr
+    r: 3.03e-6,            // 906 km / 2 (thermal; occultation chord gives ~1025 km)
+    color: 0xb4553c, minPx: 3,
+  },
 ];
 
 // ── Comets — JPL Kepler elements, each at its OWN epoch_jd ───────────────────
