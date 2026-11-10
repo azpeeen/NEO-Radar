@@ -1282,16 +1282,24 @@ async function loadMPCAsteroids() {
 
 // `out` (optional) is reused by hot loops to avoid one allocation per asteroid.
 function getMPCPosition(ast, currentJD, out) {
+  // Per-asteroid constants (mean motion, semi-minor axis, inclination trig) are
+  // computed once and cached on the object: same values, same operation order,
+  // so positions are bit-identical to recomputing them every frame.
+  if (ast._n === undefined) {
+    ast._n    = 0.9856076686 / Math.pow(ast.a, 1.5); // deg/day
+    ast._b    = ast.a * Math.sqrt(1 - ast.e * ast.e);
+    ast._cosI = Math.cos(ast.i * Math.PI / 180);
+    ast._sinI = Math.sin(ast.i * Math.PI / 180);
+  }
   var dt = currentJD - ast.epoch_jd;
-  var n  = 0.9856076686 / Math.pow(ast.a, 1.5); // deg/day
-  var M  = (ast.M + n * dt) % 360;
+  var M  = (ast.M + ast._n * dt) % 360;
   if (M < 0) M += 360;
 
   var Mrad = M * Math.PI / 180;
   var E    = solveKepler(Mrad, ast.e);
 
   var x_orb = ast.a * (Math.cos(E) - ast.e);
-  var y_orb = ast.a * Math.sqrt(1 - ast.e * ast.e) * Math.sin(E);
+  var y_orb = ast._b * Math.sin(E);
 
   // Apply secular perturbation (Laplace-Lagrange) — O(1), pre-computed rates
   var w_eff = ast.w, node_eff = ast.node;
@@ -1303,11 +1311,10 @@ function getMPCPosition(ast, currentJD, out) {
 
   var w    = w_eff    * Math.PI / 180;
   var node = node_eff * Math.PI / 180;
-  var i    = ast.i    * Math.PI / 180;
 
   var cosN = Math.cos(node), sinN = Math.sin(node);
   var cosW = Math.cos(w),    sinW = Math.sin(w);
-  var cosI = Math.cos(i),    sinI = Math.sin(i);
+  var cosI = ast._cosI,      sinI = ast._sinI;
 
   var x = (cosN * cosW - sinN * sinW * cosI) * x_orb
          + (-cosN * sinW - sinN * cosW * cosI) * y_orb;
