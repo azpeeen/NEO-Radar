@@ -3061,10 +3061,11 @@ class ThreeJSRenderer {
     var self = this;
     var scene = new THREE.Scene();
     var cam = new THREE.PerspectiveCamera(36, this.W / Math.max(1, this.H), 0.05, 80);
-    // Far enough back that the hull takes ~40% of the width and sits in the
-    // lower quarter of the view: the scene is the subject, not the ship
-    cam.position.set(0, 2.5, 11.5);
-    cam.lookAt(0, 1.9, 0);
+    // Behind and ~18° above the hull, so the payload bay and wing tops show
+    // (dead astern an orbiter is mostly engine bells), and far enough back
+    // that it sits in the lower quarter of the view: the scene is the subject.
+    cam.position.set(0, 3.6, 11.0);
+    cam.lookAt(0, 2.05, 0);
 
     var sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
     scene.add(sun);
@@ -3075,6 +3076,11 @@ class ThreeJSRenderer {
     var bank = new THREE.Group();     // cosmetic bank/pitch from the turn rates
     root.add(bank);
     scene.add(root);
+    // The ship is NASA's Space Shuttle orbiter (loaded below). Everything
+    // built into `proc` is a stand-in that only shows if that file fails.
+    var proc = new THREE.Group();
+    proc.visible = false;
+    bank.add(proc);
 
     function mat(hex, rough, extra) {
       var o = { color: self._col(hex), roughness: rough, metalness: 0.18, flatShading: true };
@@ -3089,7 +3095,7 @@ class ThreeJSRenderer {
     function add(geo, m, x, y, z) {
       var mesh = new THREE.Mesh(geo, m);
       mesh.position.set(x || 0, y || 0, z || 0);
-      bank.add(mesh);
+      proc.add(mesh);
       return mesh;
     }
     // Flat plate from a 2D outline: outline +y → ship forward, thickness → up
@@ -3166,7 +3172,7 @@ class ThreeJSRenderer {
         blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
       }));
       halo.position.set(x, -0.05, 1.66);
-      bank.add(halo);
+      proc.add(halo);
       halos.push(halo);
     });
 
@@ -3179,17 +3185,69 @@ class ThreeJSRenderer {
       }));
       sp.position.set(n[0], -0.14, 1.2);
       sp.scale.setScalar(0.34);
-      bank.add(sp);
+      proc.add(sp);
       navs.push(sp);
     });
 
-    this._ship = {
+    var sh = this._ship = {
       scene: scene, cam: cam, sun: sun, root: root, bank: bank,
       flames: flames, halos: halos, navs: navs,
+      idleFlame: 0.12, idleHalo: 0.45,       // the stand-in's engines idle with a glow
       bankZ: 0, pitchX: 0, burn: 0, t: 0,
     };
     this._shipQ = new THREE.Quaternion();     // inverse camera orientation (scratch)
     this._shipV = new THREE.Vector3();
+
+    // ── The real hull: NASA Space Shuttle orbiter ──
+    // /assets/models/ship_shuttle.glb is NASA 3D Resources' "Space Shuttle (D)"
+    // set (body, payload bay doors, engine bells) assembled into one file, in
+    // the on-orbit configuration: doors open, radiators out. Nose −Z, up +Y.
+    // The exhaust hangs off the two OMS engines, the ones an orbiter actually
+    // manoeuvres with in space: the three main engines only ran during ascent,
+    // fed by the external tank, so their bells stay dark.
+    var SHIP_SCALE = 2.9;                    // hull length ≈ 4.7 overlay units
+    this._loadModel('ship_shuttle', function (inst) {
+      if (!inst) { proc.visible = true; return; }          // file missing: fly the stand-in
+      var maxAniso = Math.min(4, self.renderer.capabilities.getMaxAnisotropy());
+      var exits = [];
+      inst.traverse(function (o) {
+        if (o.isMesh && o.material && o.material.map) o.material.map.anisotropy = maxAniso;
+        if (o.name === 'oms_exit_port' || o.name === 'oms_exit_stbd') exits.push(o);
+      });
+      var model = new THREE.Group();
+      model.add(inst);
+      model.scale.setScalar(SHIP_SCALE);
+      model.position.y = 0.53;               // fuselage axis on the bank pivot (the fin makes the bounds top-heavy)
+      bank.add(model);
+
+      // Exhaust at each OMS exit plane. The marker's frame is the engine's
+      // (inches, +X toward the nose): turn the plume's +Z to −X and undo the
+      // model's scale so the geometry below keeps its overlay-unit size.
+      var k = 0.36 / (SHIP_SCALE * inst.scale.x);
+      var newFlames = [], newHalos = [];
+      exits.forEach(function (marker) {
+        var holder = new THREE.Group();
+        holder.rotation.y = -Math.PI / 2;
+        holder.scale.setScalar(k);
+        marker.add(holder);
+        var flame = new THREE.Mesh(flameGeo, new THREE.MeshBasicMaterial({
+          color: self._col(0xbfe0ff), transparent: true, opacity: 0.4,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        }));
+        holder.add(flame);
+        newFlames.push(flame);
+        var halo = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: self._glowTexture, color: self._col(0xcfe6ff),
+          blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+        }));
+        halo.position.set(0, 0, 0.1);
+        holder.add(halo);
+        newHalos.push(halo);
+      });
+      bank.remove(proc);
+      sh.flames = newFlames; sh.halos = newHalos; sh.navs = [];
+      sh.idleFlame = 0; sh.idleHalo = 0;     // a real engine is dark when it is not burning
+    });
   }
 
   _drawShip(frame, dt) {
@@ -3221,14 +3279,13 @@ class ThreeJSRenderer {
     sh.burn += (want - sh.burn) * Math.min(1, dt * 5);
     var flick = 0.92 + 0.08 * Math.sin(sh.t * 41) * Math.sin(sh.t * 17);
     for (var i = 0; i < sh.flames.length; i++) {
-      sh.flames[i].scale.set(1, 1, 0.12 + 1.7 * sh.burn * flick);
+      sh.flames[i].scale.set(1, 1, Math.max(1e-4, sh.idleFlame + 1.7 * sh.burn * flick));
       sh.flames[i].material.opacity = 0.18 + 0.42 * Math.min(1, sh.burn);
-      sh.halos[i].scale.setScalar(0.45 + 1.15 * sh.burn * flick);
+      sh.halos[i].scale.setScalar(Math.max(1e-4, sh.idleHalo + 1.15 * sh.burn * flick));
       sh.halos[i].material.opacity = 0.35 + 0.5 * Math.min(1, sh.burn);
     }
     var blink = 0.55 + 0.45 * Math.max(0, Math.sin(sh.t * 2.4));
-    sh.navs[0].material.opacity = blink;
-    sh.navs[1].material.opacity = blink;
+    for (var n = 0; n < sh.navs.length; n++) sh.navs[n].material.opacity = blink;
   }
 
   // Camera-relative projection in double precision (CSS px). Pilot-mode HUD
@@ -3284,8 +3341,11 @@ class ThreeJSRenderer {
         g.stroke();
         // Centred under the brackets: the map's own label already sits to the
         // right of the body, and the Sun / catalog asteroids have none
+        // …unless that lands on the hull (lower middle of the view): then above
         g.textAlign = 'center';
-        g.fillText(s.tName + ' · ' + s.tDist, p.x, p.y + b + 15);
+        var below = p.y + b + 15;
+        var onHull = below > H * 0.60 && Math.abs(p.x - W / 2) < W * 0.24;
+        g.fillText(s.tName + ' · ' + s.tDist, p.x, onHull ? p.y - b - 9 : below);
       } else {
         // Off screen (or behind): arrow on a ring pointing the shortest turn
         var ax = p.cx, ay = p.cy, al = Math.hypot(ax, ay);
