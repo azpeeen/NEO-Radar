@@ -2365,21 +2365,23 @@ function _beginFocusGlide() {
   _lastInteractT = performance.now();
 }
 
-// Camera azimuth/elevation for a cinematic SIDE view of a comet (reference-
-// photo framing): the offset dir is mostly PERPENDICULAR to the anti-solar
-// tail (so the tail sweeps across the frame), biased a little to the solar
-// side (so the lit face reads). Convention matches renderer3d _updateCamera:
+// Camera azimuth/elevation for a cinematic view of a comet. The camera sits
+// ABOVE the orbital plane (mostly along the ecliptic normal), tilted a little
+// to the side and to the solar side. From there the anti-solar ion tail AND the
+// dust tail's bend toward the trailing side both lie across the frame; a pure
+// edge-on side view looks straight down the trailing axis and flattens the
+// curve. Convention matches renderer3d _updateCamera:
 // offset = (cosφ·sinθ, cosφ·cosθ, sinφ).
 function _cometViewOrient(pos) {
   var L = Math.hypot(pos.x, pos.y, pos.z || 0) || 1e-9;
   var ax = pos.x / L, ay = pos.y / L, az = (pos.z || 0) / L;   // anti-solar unit
-  // A stable perpendicular = anti × up
+  // In-plane perpendicular to the tail (anti × up)
   var ux = 0, uy = 0, uz = 1;
   if (Math.abs(az) > 0.9) { uy = 1; uz = 0; }
   var px = ay*uz - az*uy, py = az*ux - ax*uz, pz = ax*uy - ay*ux;
   var pl = Math.hypot(px, py, pz) || 1e-9; px/=pl; py/=pl; pz/=pl;
-  // camera offset dir: 90% perpendicular (side) − 35% anti-solar (solar bias)
-  var dx = px*0.9 - ax*0.35, dy = py*0.9 - ay*0.35, dz = pz*0.9 - az*0.35;
+  // offset dir: 80% up the ecliptic normal, 38% sideways, 28% toward the Sun
+  var dx = px*0.38 - ax*0.28, dy = py*0.38 - ay*0.28, dz = 0.80 + pz*0.38 - az*0.28;
   var dl = Math.hypot(dx, dy, dz) || 1e-9; dx/=dl; dy/=dl; dz/=dl;
   return {
     theta: Math.atan2(dx, dy),
