@@ -500,7 +500,52 @@
   .canvas-area.focus-active .legend,
   .canvas-area.focus-active .scale-bar,
   .canvas-area.focus-active .corner-overlay { display: none !important; }
+
+  /* ── Load screen ─────────────────────────────────────────────────────────
+     The sweep only animates transform/opacity, so the browser runs it on the
+     compositor and it keeps spinning even while the main thread is busy
+     building the scene. */
+  .radar-loader { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #050508; transition: opacity .6s ease, visibility .6s ease; }
+  .radar-loader.is-done { opacity: 0; visibility: hidden; pointer-events: none; }
+  .radar-loader .rl-inner { display: grid; justify-items: center; gap: 28px; width: min(420px, 86vw); }
+  .radar-loader .rl-scope { position: relative; width: 168px; height: 168px; border-radius: 50%; border: 1px solid var(--line-strong); background:
+      radial-gradient(circle, rgba(79,143,255,.10) 0, transparent 62%); }
+  .radar-loader .rl-scope::before, .radar-loader .rl-scope::after { content: ""; position: absolute; border-radius: 50%; border: 1px solid var(--line); inset: 22%; }
+  .radar-loader .rl-scope::after { inset: 44%; }
+  .radar-loader .rl-sweep { position: absolute; inset: 0; border-radius: 50%; animation: rl-spin 2.4s linear infinite; will-change: transform;
+      background: conic-gradient(from 0deg, rgba(79,143,255,0) 0deg, rgba(79,143,255,0) 270deg, rgba(79,143,255,.55) 360deg); }
+  .radar-loader .rl-dot { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--amber-soft); box-shadow: 0 0 8px var(--amber-glow); animation: rl-blip 2.4s ease-in-out infinite; }
+  .radar-loader .rl-dot:nth-child(2) { top: 30%; left: 64%; animation-delay: .4s; }
+  .radar-loader .rl-dot:nth-child(3) { top: 62%; left: 28%; animation-delay: 1.1s; }
+  .radar-loader .rl-dot:nth-child(4) { top: 44%; left: 78%; animation-delay: 1.7s; }
+  .radar-loader .rl-title { font-family: var(--font-display); font-weight: 500; font-size: 15px; letter-spacing: .02em; color: var(--ink); }
+  .radar-loader .rl-meta { display: grid; gap: 10px; width: 100%; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; color: var(--ink-3); }
+  .radar-loader .rl-row { display: flex; justify-content: space-between; gap: 12px; }
+  .radar-loader .rl-row .v { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .radar-loader .rl-bar { height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .radar-loader .rl-fill { height: 100%; width: 100%; background: var(--cobalt-soft); transform-origin: left center; transform: scaleX(0); transition: transform .25s ease-out; }
+  @keyframes rl-spin { to { transform: rotate(360deg); } }
+  @keyframes rl-blip { 0%, 100% { opacity: 0; } 12% { opacity: 1; } 55% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .radar-loader .rl-sweep, .radar-loader .rl-dot { animation: none; }
+    .radar-loader .rl-dot { opacity: 1; }
+  }
 </style>
+
+<section class="radar-loader" id="radar-loader" role="status" aria-live="polite">
+  <section class="rl-inner">
+    <section class="rl-scope" aria-hidden="true">
+      <section class="rl-sweep"></section>
+      <span class="rl-dot"></span><span class="rl-dot"></span><span class="rl-dot"></span>
+    </section>
+    <p class="rl-title">NEO Radar</p>
+    <section class="rl-meta">
+      <section class="rl-row"><span id="rl-status">STARTING</span><span class="v" id="rl-pct">0%</span></section>
+      <section class="rl-bar"><section class="rl-fill" id="rl-fill"></section></section>
+      <section class="rl-row"><span>OBJECTS PROCESSED</span><span class="v" id="rl-count">0</span></section>
+    </section>
+  </section>
+</section>
 
 <div class="radar-shell">
   <div class="topbar" data-screen-label="02 Radar — Topbar">
@@ -895,6 +940,93 @@
 <script src="/js/renderer3d.js"></script>
 
 <script>
+// ─── Load screen controller ──────────────────────────────────────────────────
+// Real progress only, no fake timers. Three stages, weighted by how long they
+// actually take:
+//   catalog : fetch + parse 2x25k asteroids, then secular rates (chunked)
+//   assets  : every texture/GLB queued through THREE.DefaultLoadingManager
+//   scene   : shader compile + first frames with the point cloud uploaded
+// A hard cap reveals the map anyway so a stuck request can never trap the user.
+var _loader = (function () {
+  var el = document.getElementById('radar-loader');
+  if (!el) return { stage: function () {}, count: function () {}, done: function () {} };
+  var W = { catalog: 0.55, assets: 0.30, scene: 0.15 };
+  var P = { catalog: 0, assets: 0, scene: 0 };
+  var LABEL = { catalog: 'ACQUIRING CATALOG', assets: 'LOADING SURFACES', scene: 'COMPILING SCENE' };
+  var fill = document.getElementById('rl-fill');
+  var pctEl = document.getElementById('rl-pct');
+  var statusEl = document.getElementById('rl-status');
+  var countEl = document.getElementById('rl-count');
+  var revealed = false, shown = 0;
+
+  var ORDER = ['catalog', 'assets', 'scene'];
+  var lastAdvance = Date.now();
+
+  function paint() {
+    var total = 0;
+    for (var k in W) total += W[k] * P[k];
+    total = Math.min(1, total);
+    if (total > shown) lastAdvance = Date.now();
+    shown = Math.max(shown, total);                // never moves backwards
+    fill.style.transform = 'scaleX(' + shown.toFixed(3) + ')';
+    pctEl.textContent = Math.round(shown * 100) + '%';
+    if (revealed) return;
+    // Label = first stage (in pipeline order) that is not finished yet
+    for (var i = 0; i < ORDER.length; i++) {
+      if (P[ORDER[i]] < 1) { statusEl.textContent = LABEL[ORDER[i]]; break; }
+    }
+  }
+
+  function reveal() {
+    if (revealed) return;
+    revealed = true;
+    P.catalog = P.assets = P.scene = 1;
+    paint();
+    el.classList.add('is-done');
+    el.setAttribute('aria-hidden', 'true');
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 900);
+    // Stop listening to the manager: later GLB focus loads are not "startup"
+    if (window.THREE) {
+      THREE.DefaultLoadingManager.onProgress = function () {};
+      THREE.DefaultLoadingManager.onLoad = function () {};
+    }
+  }
+
+  function checkAllDone() {
+    if (P.catalog >= 1 && P.assets >= 1 && P.scene >= 1) reveal();
+  }
+
+  // Fail-safe: reveal if progress has not advanced for 12 s (a stuck request),
+  // or after 90 s no matter what. A slow device that keeps advancing is fine.
+  var _t0 = Date.now();
+  var _watch = setInterval(function () {
+    if (revealed) { clearInterval(_watch); return; }
+    var now = Date.now();
+    if (now - lastAdvance > 12000 || now - _t0 > 90000) { clearInterval(_watch); reveal(); }
+  }, 1000);
+
+  return {
+    stage: function (name, frac) {
+      if (revealed) return;
+      P[name] = Math.max(P[name], Math.min(1, frac));
+      paint();
+      checkAllDone();
+    },
+    count: function (n) { countEl.textContent = n.toLocaleString(); },
+  };
+}());
+
+// Textures + GLBs: hook the manager BEFORE the renderer is constructed, since
+// its constructor queues every texture synchronously.
+if (window.THREE) {
+  THREE.DefaultLoadingManager.onProgress = function (url, loaded, total) {
+    _loader.stage('assets', total ? loaded / total : 1);
+  };
+  THREE.DefaultLoadingManager.onLoad = function () { _loader.stage('assets', 1); };
+}
+</script>
+
+<script>
 // Catalog injected server-side from src/data/catalog.js (47 objects)
 const NEOS = <%- JSON.stringify(neos.map(n => ({
   id:       n.id,
@@ -1092,22 +1224,41 @@ var _hoverMPC        = null;  // currently hovered MPC entry { ast, sx, sy }
 var _promoKey        = null;  // designation currently promoted in the renderer
 var _promoAstRef     = null;  // MPC ast whose cloud point is parked off-world
 
+// Yield to the browser so the load screen keeps painting between heavy chunks
+function _yieldToBrowser() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
 async function loadMPCAsteroids() {
   try {
     // Load ALL catalog asteroids (chunked: two requests of 25k)
+    var done = 0;
+    function part(url) {
+      return fetch(url).then(r => r.json()).then(function (j) {
+        done++; _loader.stage('catalog', done * 0.15);   // fetch + parse = first 30%
+        return j;
+      });
+    }
     const [r1, r2] = await Promise.all([
-      fetch('/api/asteroids/bulk?limit=25000&offset=0').then(r => r.json()),
-      fetch('/api/asteroids/bulk?limit=25000&offset=25000').then(r => r.json()),
+      part('/api/asteroids/bulk?limit=25000&offset=0'),
+      part('/api/asteroids/bulk?limit=25000&offset=25000'),
     ]);
     const combined = (r1.asteroids || []).concat(r2.asteroids || []);
     // Mobile: cap the cloud at 20k — halves the per-frame Kepler pass and the
     // vertex load on small screens (HUD count stays honest: it shows 20,000)
     _mpcAsteroids = window.innerWidth < 768 ? combined.slice(0, 20000) : combined;
 
-    // Pre-compute secular rates once — O(1) per frame from here on
-    for (var k = 0; k < _mpcAsteroids.length; k++) {
+    // Pre-compute secular rates once, O(1) per frame from here on.
+    // Done in chunks of 2500 with a yield in between, otherwise this loop
+    // freezes the page (and the load screen) for the whole duration.
+    var CHUNK = 2500, N = _mpcAsteroids.length;
+    for (var k = 0; k < N; k++) {
       _mpcAsteroids[k]._sec = computeSecularRates(_mpcAsteroids[k]);
+      if ((k + 1) % CHUNK === 0) {
+        _loader.count(k + 1);
+        _loader.stage('catalog', 0.30 + 0.65 * ((k + 1) / N));
+        await _yieldToBrowser();
+      }
     }
+    _loader.count(N);
     _mpcLoaded = true;
     _initMPCBuffers();
 
@@ -1119,6 +1270,7 @@ async function loadMPCAsteroids() {
   } catch (e) {
     console.warn('[MPC] Failed to load asteroids:', e.message);
   }
+  _loader.stage('catalog', 1);   // success or failure: never block the reveal
 }
 
 function getMPCPosition(ast, currentJD) {
@@ -1212,7 +1364,21 @@ function updateMPCFrame() {
 }
 
 // Start loading MPC data (non-blocking)
-if (state.showMPC) loadMPCAsteroids();
+if (state.showMPC) loadMPCAsteroids(); else _loader.stage('catalog', 1);
+
+// Scene stage: wait until the catalog + assets are in, compile every shader the
+// scene needs up front, then let two real frames render (this is where the
+// point cloud gets uploaded to the GPU) before the load screen fades. Without
+// this the screen would lift and the map would still hitch for a second.
+(function waitForScene() {
+  var ready = _mpcLoaded || !state.showMPC;
+  if (!ready) { setTimeout(waitForScene, 50); return; }
+  try { _renderer.renderer.compile(_renderer.scene, _renderer.camera); } catch (e) {}
+  _loader.stage('scene', 0.5);
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () { _loader.stage('scene', 1); });
+  });
+}());
 
 // ─── Promoted object (Layer 3) ────────────────────────────────────────────────
 // Rendered by ThreeJSRenderer: procedural mesh + RK4 trajectory + MC cloud.
