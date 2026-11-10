@@ -245,3 +245,60 @@ describe('Catalog integrity', () => {
     }
   });
 });
+
+// ─── 7. General relativity (1PN Schwarzschild term, opt-in) ──────────────────
+
+describe('Relativistic correction', () => {
+  const { C_AU_DAY } = require('../src/physics/integrator');
+  const mu = G * BODIES.sun.mass;
+
+  // Direction of the eccentricity (Laplace-Runge-Lenz) vector = perihelion
+  function perihelionAngle(s) {
+    const r = [s[0], s[1], s[2]], v = [s[3], s[4], s[5]];
+    const rn = Math.hypot(r[0], r[1], r[2]);
+    const h = [r[1]*v[2] - r[2]*v[1], r[2]*v[0] - r[0]*v[2], r[0]*v[1] - r[1]*v[0]];
+    const ex = (v[1]*h[2] - v[2]*h[1]) / mu - r[0] / rn;
+    const ey = (v[2]*h[0] - v[0]*h[2]) / mu - r[1] / rn;
+    return Math.atan2(ey, ex);
+  }
+
+  // Perihelion advance attributable to GR alone, arcsec per Julian century.
+  // The Newtonian run is subtracted so integrator artefacts cancel.
+  function grPrecession(el, orbits) {
+    const P = orbitalPeriod(el.a);
+    const { r, v } = keplerToCartesian({ ...el, M: 0 });
+    const s0 = [r[0], r[1], r[2], v[0], v[1], v[2]];
+    const T = orbits * P;
+    const opts = { dt0: 0.05, dtMax: 0.25, tol: 1e-12 };
+    const newton = propagate(s0, 0, T, T, sunOnlyEphemeris(), opts);
+    const gr     = propagate(s0, 0, T, T, sunOnlyEphemeris(), { ...opts, relativity: true });
+    const d = perihelionAngle(gr[gr.length - 1].state) - perihelionAngle(newton[newton.length - 1].state);
+    return (d / orbits) * (36525 / P) * 206264.806;
+  }
+
+  function theory(el) {
+    const P = orbitalPeriod(el.a);
+    return (6 * Math.PI * mu / (C_AU_DAY * C_AU_DAY * el.a * (1 - el.e * el.e))) * (36525 / P) * 206264.806;
+  }
+
+  it('reproduces Mercury\'s 42.98"/century perihelion advance', () => {
+    const mercury = { a: 0.38709893, e: 0.20563069, i: 0, Omega: 0, omega: 0 };
+    const got = grPrecession(mercury, 20);
+    assert.ok(Math.abs(got - 42.98) < 0.05, `expected 42.98"/cy, got ${got.toFixed(4)}`);
+    assert.ok(Math.abs(got / theory(mercury) - 1) < 1e-3);
+  });
+
+  it('matches 6πGM/(c²a(1−e²)) for a high-eccentricity NEO (1566 Icarus)', () => {
+    const icarus = { a: 1.0780, e: 0.8270, i: 0, Omega: 0, omega: 0 };
+    const got = grPrecession(icarus, 20);
+    assert.ok(Math.abs(got / theory(icarus) - 1) < 2e-3, `got ${got.toFixed(4)} vs ${theory(icarus).toFixed(4)}`);
+  });
+
+  it('is off by default: results are bit-identical without the flag', () => {
+    const { r, v } = keplerToCartesian({ a: 0.9224, e: 0.1911, i: 3.33, Omega: 204.4, omega: 126.4, M: 10 });
+    const s0 = [r[0], r[1], r[2], v[0], v[1], v[2]];
+    const a = propagate(s0, T0, T0 + 400, 400, ephemerisAt, { dt0: 1, tol: 1e-10 });
+    const b = propagate(s0, T0, T0 + 400, 400, ephemerisAt, { dt0: 1, tol: 1e-10, relativity: false });
+    assert.deepEqual(Array.from(a[a.length - 1].state), Array.from(b[b.length - 1].state));
+  });
+});
