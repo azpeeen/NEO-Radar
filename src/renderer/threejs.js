@@ -105,20 +105,43 @@ var SIDEREAL_DAY = {
   jupiter: 0.41354, saturn: 0.44401, uranus: -0.71833, neptune: 0.67125,
 };
 
-// Axial tilt relative to the ecliptic, degrees
+// Axial tilt relative to the ecliptic, degrees. Pluto is here only for
+// Charon's orbital plane (see moonPlaneTilt): obliquity 119.51° [NSSDCA].
 var AXIAL_TILT = {
   mercury: 0.034, venus: 177.4, earth:  23.44, mars:    25.19,
   jupiter: 3.13,  saturn: 26.73, uranus: 97.77, neptune: 28.32,
+  pluto: 119.51,
 };
 
-// ── Moons — visual-only circular orbits around their parent planets ──────────
-// a in AU, T in days (negative = retrograde: Triton), i in degrees vs the
-// ecliptic (simplified), r = physical radius in AU (radius_km / 1.496e8).
+// ── Moons — visual-only circular orbits around their parent ──────────────────
+// a in AU, T in days (negative = retrograde: Triton, Phoebe), r = physical
+// radius in AU. Phases are NOT ephemeris positions: each moon starts from a
+// fixed convention (see moonLocalPos). Sizes, periods and planes are real.
+//
+// i is the inclination to the PARENT'S EQUATOR, and the orbit is drawn in
+// that plane: the equator the planet's mesh (and Saturn's rings) are tilted
+// to. Regular moons really do orbit there, which is why Uranus's system
+// stands almost upright. ecl:true marks the two exceptions whose i is taken
+// against the ecliptic: Earth's Moon and the captured irregular Phoebe.
+//
+//   minor:true  small inner moon: labelled only when the camera is close
+//   lead: deg   trojan moon: fixed angle ahead (+) or behind (−) of the
+//               moon it shares an orbit with (same T, so it never drifts)
+//
+// The 17 entries written with _km()/_rMean() are from the NASA NSSDCA
+// satellite fact sheets (Jovian 2023-12-06, Saturnian 2025-07-22, Neptunian
+// 2024-03-11, Pluto 2024-01-11): semi-major axis and triaxial radii in km,
+// exactly as published. Trojan points (Telesto L4, Calypso L5, Helene L4)
+// from Wikipedia "Trojan moon". They are the moons that already had a shape
+// model in /assets/models and no place on the map.
 // Shared with the page: classic scripts share the global scope, so radar.ejs
 // reads MOONS / MOONS_BY_ID / moonLocalPos for hit tests and focus follow.
+function _km(km) { return km / 1.495979e8; }
+// Radius of the sphere with the same volume as an a × b × c ellipsoid (semi-axes)
+function _rMean(a, b, c) { return Math.cbrt(a * b * c); }
 var MOONS = [
   // Earth
-  { id:'moon',      parent:'earth',   a:0.00257,  T:27.3217, i:5.145, r:1.161e-5, name:'Moon',      tidal:true },
+  { id:'moon',      parent:'earth',   a:0.00257,  T:27.3217, i:5.145, r:1.161e-5, name:'Moon',      tidal:true, ecl:true },
   // Mars
   { id:'phobos',    parent:'mars',    a:6.267e-5, T:0.3189,  i:1.093, r:7.41e-8,  name:'Phobos',    tidal:true },
   { id:'deimos',    parent:'mars',    a:1.568e-4, T:1.2624,  i:1.788, r:4.14e-8,  name:'Deimos',    tidal:true },
@@ -127,6 +150,9 @@ var MOONS = [
   { id:'europa',    parent:'jupiter', a:4.486e-3, T:3.5512,  i:0.466, r:1.043e-5, name:'Europa',    tidal:true },
   { id:'ganymede',  parent:'jupiter', a:7.155e-3, T:7.1546,  i:0.177, r:1.761e-5, name:'Ganymede',  tidal:true },
   { id:'callisto',  parent:'jupiter', a:1.259e-2, T:16.689,  i:0.192, r:1.611e-5, name:'Callisto',  tidal:true },
+  // Jupiter, inner (inside Io's orbit)
+  { id:'amalthea',  parent:'jupiter', a:_km(181400),  T:0.498179, i:0.38, r:_km(_rMean(125, 73, 64)), name:'Amalthea', tidal:true, minor:true },
+  { id:'thebe',     parent:'jupiter', a:_km(221900),  T:0.6745,   i:1.08, r:_km(_rMean(58, 49, 42)),  name:'Thebe',    tidal:true, minor:true },
   // Saturn
   { id:'mimas',     parent:'saturn',  a:1.243e-3, T:0.9424,  i:1.574, r:1.325e-6, name:'Mimas',     tidal:true },
   { id:'enceladus', parent:'saturn',  a:1.593e-3, T:1.3702,  i:0.009, r:1.685e-6, name:'Enceladus', tidal:true },
@@ -135,6 +161,25 @@ var MOONS = [
   { id:'rhea',      parent:'saturn',  a:3.523e-3, T:4.5175,  i:0.333, r:5.106e-6, name:'Rhea',      tidal:true },
   { id:'titan',     parent:'saturn',  a:8.168e-3, T:15.945,  i:0.349, r:1.721e-5, name:'Titan',     tidal:true },
   { id:'iapetus',   parent:'saturn',  a:2.381e-2, T:79.330,  i:15.47, r:4.910e-6, name:'Iapetus',   tidal:true },
+  // Saturn, ring moons: Pan and Daphnis orbit INSIDE gaps of the A ring (Encke
+  // and Keeler), Atlas skims its outer edge, Prometheus and Pandora flank the
+  // F ring, Janus and Epimetheus share one orbit
+  { id:'pan',        parent:'saturn', a:_km(133583), T:0.5750, i:0.0,  r:_km(_rMean(17, 16, 10)),    name:'Pan',        tidal:true, minor:true },
+  { id:'daphnis',    parent:'saturn', a:_km(136500), T:0.594,  i:0.0,  r:_km(_rMean(4.3, 4.1, 3.2)), name:'Daphnis',    tidal:true, minor:true },
+  { id:'atlas',      parent:'saturn', a:_km(137670), T:0.6019, i:0.3,  r:_km(_rMean(20, 18, 9)),     name:'Atlas',      tidal:true, minor:true },
+  { id:'prometheus', parent:'saturn', a:_km(139353), T:0.6130, i:0.0,  r:_km(_rMean(68, 40, 30)),    name:'Prometheus', tidal:true, minor:true },
+  { id:'pandora',    parent:'saturn', a:_km(141700), T:0.6285, i:0.0,  r:_km(_rMean(52, 41, 32)),    name:'Pandora',    tidal:true, minor:true },
+  { id:'epimetheus', parent:'saturn', a:_km(151422), T:0.6942, i:0.34, r:_km(_rMean(65, 57, 53)),    name:'Epimetheus', tidal:true, minor:true },
+  { id:'janus',      parent:'saturn', a:_km(151472), T:0.6945, i:0.14, r:_km(_rMean(102, 93, 76)),   name:'Janus',      tidal:true, minor:true },
+  // Saturn, trojan moons: they share a bigger moon's orbit, 60° ahead (L4) or
+  // behind (L5). Same period as that moon, so `lead` holds for all time.
+  { id:'telesto',    parent:'saturn', a:_km(294720), T:1.8878, i:1.158, r:_km(_rMean(16, 12, 10)),   name:'Telesto',    tidal:true, minor:true, lead:60 },   // Tethys L4
+  { id:'calypso',    parent:'saturn', a:_km(294720), T:1.8878, i:1.473, r:_km(_rMean(15, 12, 7)),    name:'Calypso',    tidal:true, minor:true, lead:-60 },  // Tethys L5
+  { id:'helene',     parent:'saturn', a:_km(377440), T:2.7369, i:0.0,   r:_km(_rMean(22, 19, 13)),   name:'Helene',     tidal:true, minor:true, lead:60 },   // Dione L4
+  // Saturn, outer: Hyperion tumbles chaotically (no tidal lock), Phoebe is a
+  // captured body on a distant retrograde orbit, spinning every 0.4 days
+  { id:'hyperion',   parent:'saturn', a:_km(1500930),  T:21.276609, i:0.43,  r:_km(_rMean(180, 133, 103)), name:'Hyperion', tidal:false },
+  { id:'phoebe',     parent:'saturn', a:_km(12944000), T:-548,      i:174.8, r:_km(_rMean(109, 109, 102)), name:'Phoebe',   tidal:false, ecl:true },
   // Uranus
   { id:'miranda',   parent:'uranus',  a:8.711e-4, T:1.4135,  i:4.338, r:1.576e-6, name:'Miranda',   tidal:true },
   { id:'ariel',     parent:'uranus',  a:1.276e-3, T:2.5204,  i:0.041, r:3.870e-6, name:'Ariel',     tidal:true },
@@ -143,6 +188,12 @@ var MOONS = [
   { id:'oberon',    parent:'uranus',  a:3.910e-3, T:13.463,  i:0.068, r:5.090e-6, name:'Oberon',    tidal:true },
   // Neptune
   { id:'triton',    parent:'neptune', a:2.371e-3, T:-5.877,  i:156.8, r:9.047e-6, name:'Triton',    tidal:true },
+  // Neptune, inner
+  { id:'larissa',   parent:'neptune', a:_km(73548),  T:0.554654, i:0.20, r:_km(_rMean(108, 102, 84)),  name:'Larissa', tidal:true, minor:true },
+  { id:'proteus',   parent:'neptune', a:_km(117647), T:1.122315, i:0.04, r:_km(_rMean(220, 208, 202)), name:'Proteus', tidal:true, minor:true },
+  // Pluto (parent is a DWARF planet: see _moonParentFrame / _moonWorldPos).
+  // Half Pluto's diameter; the pair is mutually tidally locked.
+  { id:'charon',    parent:'pluto',   a:_km(19596),  T:6.3872,   i:0.0,  r:_km(606),                   name:'Charon',  tidal:true },
 ];
 
 var MOONS_BY_ID = {};
@@ -291,15 +342,36 @@ function moonLocalPos(data, simTime) {
   var Tabs = Math.abs(data.T);
   var phase0 = ((9643 % Tabs) / Tabs) * 2 * Math.PI;
   var sign = data.T < 0 ? -1 : 1;
-  var angle = phase0 + sign * (simTime / Tabs) * 2 * Math.PI;
+  var angle = phase0 + sign * (simTime / Tabs) * 2 * Math.PI + (data.lead || 0) * Math.PI / 180;
+  var out = moonOrbitPoint(data, angle, {});
+  out.angle = angle;
+  return out;
+}
+
+// Tilt of a moon's reference plane away from the ecliptic (rad): the parent's
+// obliquity, applied about scene Y exactly like the planet mesh
+// (group.rotation.y), so orbit, rings and globe share one equator.
+function moonPlaneTilt(data) {
+  return data.ecl ? 0 : (AXIAL_TILT[data.parent] || 0) * Math.PI / 180;
+}
+
+// Point of a moon's orbit at orbital angle `angle`, relative to the parent
+// (AU, scene axes). Also what the orbit rings are baked from.
+function moonOrbitPoint(data, angle, out) {
   var iRad = data.i * Math.PI / 180;
   var sa = Math.sin(angle);
-  return {
-    x: data.a * Math.cos(angle),
-    y: data.a * sa * Math.cos(iRad),
-    z: data.a * sa * Math.sin(iRad),
-    angle: angle,
-  };
+  var x = data.a * Math.cos(angle);
+  var y = data.a * sa * Math.cos(iRad);
+  var z = data.a * sa * Math.sin(iRad);
+  var tilt = moonPlaneTilt(data);
+  if (tilt) {
+    var ct = Math.cos(tilt), st = Math.sin(tilt);
+    var x2 = x * ct + z * st;
+    z = -x * st + z * ct;
+    x = x2;
+  }
+  out.x = x; out.y = y; out.z = z;
+  return out;
 }
 
 /* ── Seeded PRNG + string hash (deterministic asteroid shapes) ───────────── */
@@ -1810,8 +1882,14 @@ class ThreeJSRenderer {
         // RingGeometry lies in the local XY plane — with the pole baked onto
         // +Z that IS the planet's equatorial plane; the group's axial tilt
         // (rotation.y above) tips ring and globe together.
-        var ringGeo = new THREE.RingGeometry(1.4, 2.4, 64);
-        self._remapRingUVs(ringGeo, 1.4, 2.4);
+        // Main rings, real extent: inner edge of the C ring (74,658 km) to
+        // the outer edge of the A ring (136,780 km), in units of Saturn's
+        // equatorial radius, 60,268 km [NASA NSSDCA Saturnian Rings Fact
+        // Sheet]. With these the ring moons land where they belong: Pan and
+        // Daphnis inside the A ring's outer rim, Atlas just beyond its edge.
+        var RING_IN = 74658 / 60268, RING_OUT = 136780 / 60268;
+        var ringGeo = new THREE.RingGeometry(RING_IN, RING_OUT, 128);
+        self._remapRingUVs(ringGeo, RING_IN, RING_OUT);
         var ringMat = new THREE.MeshBasicMaterial({
           color: self._col('#d4c79c'),
           transparent: true,
@@ -1846,6 +1924,10 @@ class ThreeJSRenderer {
     this._planetIdxByKey = {};
     this.planets.forEach(function (p, i) { self._planetIdxByKey[p.def.key] = i; });
 
+    // …or dwarf-planet id → index into frame.dwarfPlanets (Charon → Pluto)
+    this._dwarfIdxById = {};
+    (this.opts.dwarfPlanets || []).forEach(function (dd, i) { self._dwarfIdxById[dd.def.id] = i; });
+
     this._moonGeoShared = new THREE.SphereGeometry(1, 24, 16);
     this._moons = {};
     MOONS.forEach(function (data) {
@@ -1861,17 +1943,17 @@ class ThreeJSRenderer {
       var group = new THREE.Group();
       group.add(mesh);
       group.visible = false;
+      // The moon's own pole follows its orbital plane (the parent's equator):
+      // the tidal-lock yaw below then turns it about the right axis
+      group.rotation.y = moonPlaneTilt(data);
       self.scene.add(group);
 
-      // Orbit ring baked at radius a in the moon's orbital plane (tilt i) —
+      // Orbit ring baked at radius a in the moon's orbital plane —
       // recentred on the parent every frame
-      var N = 64, pts = new Float32Array(N * 3);
-      var iRad = data.i * Math.PI / 180, ci = Math.cos(iRad), si = Math.sin(iRad);
+      var N = 96, pts = new Float32Array(N * 3), op = {};
       for (var k = 0; k < N; k++) {
-        var a2 = (k / N) * Math.PI * 2, s2 = Math.sin(a2);
-        pts[k * 3]     = data.a * Math.cos(a2);
-        pts[k * 3 + 1] = data.a * s2 * ci;
-        pts[k * 3 + 2] = data.a * s2 * si;
+        moonOrbitPoint(data, (k / N) * Math.PI * 2, op);
+        pts[k * 3] = op.x; pts[k * 3 + 1] = op.y; pts[k * 3 + 2] = op.z;
       }
       var ogeo = new THREE.BufferGeometry();
       ogeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
@@ -2698,7 +2780,10 @@ class ThreeJSRenderer {
     for (var id in this._moons) {
       var m = this._moons[id];
       var pIdx = this._planetIdxByKey[m.data.parent];
-      var pf = pIdx != null ? frame.planets[pIdx] : null;
+      var dIdx = this._dwarfIdxById[m.data.parent];
+      var pf = pIdx != null ? frame.planets[pIdx]
+        : dIdx != null ? frame.dwarfPlanets[dIdx] : null;
+      var pz = pf && pIdx == null ? (pf.z || 0) : 0;      // planets live in the ecliptic plane
       var visible = !!(pf && pf.visible);
       m.group.visible = visible;
       m.orbit.visible = false;
@@ -2706,7 +2791,7 @@ class ThreeJSRenderer {
       if (!visible) { m.screen = null; continue; }
 
       var lp = moonLocalPos(m.data, state.simTime);
-      var mx = pf.x + lp.x, my = pf.y + lp.y, mz = lp.z;
+      var mx = pf.x + lp.x, my = pf.y + lp.y, mz = pz + lp.z;
       m.group.position.set(mx, my, mz);
 
       // NEO-sized min-px dot from afar, true physical radius up close
@@ -2734,15 +2819,19 @@ class ThreeJSRenderer {
       // Screen cache for page hit tests + labels. sep = on-screen distance to
       // the parent's centre (page skips moons buried inside the parent disc).
       var s = this._ws(mx, my, mz);
-      var ps = this._ws(pf.x, pf.y, 0);
+      var ps = this._ws(pf.x, pf.y, pz);
       var sep = (s && ps) ? Math.hypot(s.x - ps.x, s.y - ps.y) : 1e9;
       m.screen = s ? { x: s.x, y: s.y, r: Math.max(3, r / wpp), sep: sep } : null;
 
       // Orbit ring + label only while the camera is inside the parent system
-      var nearParent = this._camDist(pf.x, pf.y, 0) < 1;
-      m.orbit.visible = !!state.showOrbits && nearParent;
-      if (m.orbit.visible) m.orbit.position.set(pf.x, pf.y, 0);
-      m.labelOn = nearParent && !!s && sep > 14;
+      var parentDist = this._camDist(pf.x, pf.y, pz);
+      var nearParent = parentDist < 1;
+      // Small inner moons: ring and label only once the camera is well inside
+      // the system, or Saturn would wear a dozen overlapping names from afar
+      var inSystem = !m.data.minor || parentDist < m.data.a * 40;
+      m.orbit.visible = !!state.showOrbits && nearParent && inSystem;
+      if (m.orbit.visible) m.orbit.position.set(pf.x, pf.y, pz);
+      m.labelOn = nearParent && inSystem && !!s && sep > 14;
     }
   }
 
@@ -3006,7 +3095,7 @@ class ThreeJSRenderer {
         }
       } else {
         var m = this._moons[key];
-        if (m && m.group.visible) { pos = m.group.position; radius = m.data.r; }
+        if (m && m.group.visible) { pos = m.group.position; radius = m.data.r; quat = m.group.quaternion; }
       }
       if (!pos) { v.opacity = 0; v.root.visible = false; continue; }
 

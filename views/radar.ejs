@@ -1282,9 +1282,16 @@ function orbitPos(o, t) {
 function _moonWorldPos(id, t) {                                  // heliocentric, AU
   var md = MOONS_BY_ID[id];
   var pIdx = PLANETS.findIndex(function (p) { return p.key === md.parent; });
-  var pp = orbitPos(PLANETS[pIdx], t);
+  var pp;
+  if (pIdx >= 0) {
+    pp = orbitPos(PLANETS[pIdx], t);
+  } else {
+    // Parent is a dwarf planet (Charon → Pluto): inclined orbit, so it has a z
+    var dIdx = DWARF_PLANETS.findIndex(function (d) { return d.id === md.parent; });
+    pp = orbitPos(DWARF_ELEMS[dIdx], t);
+  }
   var lp = moonLocalPos(md, t);
-  return { x: pp.x + lp.x, y: pp.y + lp.y, z: lp.z, parentIdx: pIdx, parentPos: pp };
+  return { x: pp.x + lp.x, y: pp.y + lp.y, z: (pp.z || 0) + lp.z, parentIdx: pIdx, parentPos: pp };
 }
 // Circular-orbit speed around the parent, km/s
 function _moonOrbSpeedKms(md) {
@@ -2726,7 +2733,8 @@ function _applyFocusTarget(target) {
       : null;
   } else if (target.type === 'moon') {
     var md = MOONS_BY_ID[target.id];
-    var mpar = PLANETS.find(function (p) { return p.key === md.parent; });
+    var mpar = PLANETS.find(function (p) { return p.key === md.parent; })
+      || DWARF_PLANETS.find(function (d) { return d.id === md.parent; });   // Charon
     target.a = mpar ? mpar.a : 1.0;            // heliocentric fallback for the HUD
     target.name = md.name;
     target.desig = 'MOON OF ' + md.parent.toUpperCase() + ' · P = ' + Math.abs(md.T).toFixed(2) + ' D';
@@ -3262,27 +3270,26 @@ function _pilotTick(dt, t) {
   if (P.target && P.target.custom) _pilotPushOut(P.target, berth);
   _pilotScan();
 
-  // ── Anchor: ride the body the ship is closest to, in units of its radius.
-  // Switching needs a clearly better candidate, so two bodies never trade the
-  // ship back and forth. ──
+  // ── Anchor: which body the ship rides with ──
+  // Autopilot: the target, from the first frame. At rest: whatever it already
+  // is (a parked ship stays parked, even when a moon sweeps past). Under
+  // manual thrust: the body whose SURFACE is nearest, once the ship is inside
+  // its grip. Nearest surface, not nearest in radii: 40 km above Pan the ship
+  // is also only 2.2 radii from Saturn, and it is Pan it must stay with.
   if (P.auto && P.target) {
     _pilotSetAnchor(P.target);
-  } else {
-    var best = null, bestS = PILOT_ANCHOR_IN, sc;
-    for (i = 0; i < B.length; i++) {
-      sc = _pilotAnchorScore(B[i]);
-      if (sc < bestS) { bestS = sc; best = B[i]; }
-    }
-    if (P.target && P.target.custom) {
-      sc = _pilotAnchorScore(P.target);
-      if (sc < bestS) { bestS = sc; best = P.target; }
-    }
+  } else if (P.speed !== 0) {
+    var nb = P.near;
+    var inGrip = !!nb && _pilotAnchorScore(nb) < PILOT_ANCHOR_IN;
     if (!P.anchor) {
-      if (best) _pilotSetAnchor(best);
-    } else {
-      var cur = _pilotAnchorScore(P.anchor);
-      if (cur > PILOT_ANCHOR_OUT) _pilotSetAnchor(best);          // may be null: back to heliocentric
-      else if (best && best !== P.anchor && bestS < cur * 0.6) _pilotSetAnchor(best);
+      if (inGrip) _pilotSetAnchor(nb);
+    } else if (_pilotAnchorScore(P.anchor) > PILOT_ANCHOR_OUT) {
+      _pilotSetAnchor(inGrip ? nb : null);                        // null: back to heliocentric
+    } else if (inGrip && nb !== P.anchor) {
+      // Hand over only to a clearly nearer surface, so two bodies never
+      // trade the ship back and forth
+      var dCur = Math.hypot(P.x - P.anchor.x, P.y - P.anchor.y, P.z - P.anchor.z) - P.anchor.r;
+      if (P.nearSurf < dCur * 0.6) _pilotSetAnchor(nb);
     }
   }
   _pilotSetWorld(P.x, P.y, P.z);
