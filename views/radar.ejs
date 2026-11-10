@@ -1666,7 +1666,8 @@ const _renderer  = new ThreeJSRenderer(_container, {
   neos:    NEOS.map(n => ({ id:n.id, name:n.name, risk:n.risk, orbitPts: buildOrbitPts(n, 200) })),
   // 512 segments for comets: uniform-M sampling starves the perihelion whip
   // of points on e≈0.97 orbits (Halley) — denser sampling keeps the loop smooth
-  dwarfPlanets: DWARF_PLANETS.map((d, i) => ({ def: d, orbitPts: buildOrbitPts(DWARF_ELEMS[i], 200) })),
+  // Eccentric dwarfs get denser polylines for the same reason (Sedna e = 0.85)
+  dwarfPlanets: DWARF_PLANETS.map((d, i) => ({ def: d, orbitPts: buildOrbitPts(DWARF_ELEMS[i], d.e > 0.6 ? 2048 : d.e > 0.3 ? 512 : 200) })),
   comets:       COMETS.map((c, i) => ({ def: c, orbitPts: buildOrbitPts(COMET_ELEMS[i], 512) })),
   textureBase: '/assets/textures/',
 });
@@ -1692,6 +1693,9 @@ if (typeof ResizeObserver !== 'undefined') {
 // every call site must tolerate that.
 const _vp = _renderer.getVPMatrix();
 const FOV_RAD = 45 * Math.PI / 180;
+// Farthest dolly-out. 260 AU keeps the scattered-disc dwarfs (Eris ~96 AU,
+// Gonggong ~90, Sedna ~83) on screen; scene far plane is 500.
+const CAM_MAX_DIST = 260;
 function ws(x, y, z) {
   z = z || 0;
   const e = _vp;                       // column-major (Three.js convention)
@@ -2884,7 +2888,7 @@ cv.addEventListener('wheel',e=>{
   if (state.focusTarget && !_focusFollow && !_exitAnim) {
     // Mid-entry glide: retarget the dolly endpoint so the wheel never fights
     // the animation
-    _focusDistTarget = Math.max(_focusMinDist, Math.min(120, _focusDistTarget * factor));
+    _focusDistTarget = Math.max(_focusMinDist, Math.min(CAM_MAX_DIST, _focusDistTarget * factor));
   } else {
     // Zoom-to-cursor: nudge the target toward the point under the mouse so
     // the dolly heads for the cursor, not the Sun. Skipped while focused —
@@ -2901,7 +2905,7 @@ cv.addEventListener('wheel',e=>{
     }
     // Dolly floor is dynamic in focus follow (just above the surface)
     const minD = _focusFollow ? _focusMinDist : 0.0005;
-    state.cam.dist = Math.max(minD, Math.min(120, state.cam.dist * factor));
+    state.cam.dist = Math.max(minD, Math.min(CAM_MAX_DIST, state.cam.dist * factor));
     // Zooming far out of a focused object (4× the dolly target) leaves focus
     // silently — no return glide, the camera keeps this exact distance
     if (state.focusMode && _focusFollow && !_exitAnim &&
@@ -3250,10 +3254,10 @@ function _mobileTap(x, y) {
       if (d > 1) {
         var ratio = pinchDist / d;
         if (state.focusTarget && !_focusFollow && !_exitAnim) {
-          _focusDistTarget = Math.max(_focusMinDist, Math.min(120, _focusDistTarget * ratio));
+          _focusDistTarget = Math.max(_focusMinDist, Math.min(CAM_MAX_DIST, _focusDistTarget * ratio));
         } else {
           var minD = _focusFollow ? _focusMinDist : 0.0005;
-          state.cam.dist = Math.max(minD, Math.min(120, state.cam.dist * ratio));
+          state.cam.dist = Math.max(minD, Math.min(CAM_MAX_DIST, state.cam.dist * ratio));
         }
         pinchDist = d;
       }
