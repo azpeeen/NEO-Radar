@@ -12,7 +12,8 @@
  * RMS position deviation is computed at 30-day output intervals.
  * Results back up the 412 km JPL-accuracy claim on the landing page.
  *
- * Usage: node scripts/benchmark.js [--fast]
+ * Usage: node scripts/benchmark.js [--fast] [--jpl] [--gr]
+ *   --gr    Include the relativistic (1PN Schwarzschild) correction
  *   --fast  Only propagate 3 objects for a quick sanity check
  *
  * Approximate runtime: ~90 s for all 47 objects on a modern laptop.
@@ -31,7 +32,10 @@ const T0      = 9643;              // days from J2000 to 2026-05-27
 const YEARS   = 50;
 const T1      = T0 + YEARS * 365.25;
 const DT_OUT  = 30;               // sample every 30 days ≈ 608 frames/50yr
-const OPTS    = { dt0: 1.0, tol: 1e-10 };
+// --gr adds the 1PN relativistic term (integrator opts.relativity), so the same
+// benchmark can be run with and without it and compared against JPL.
+const GR      = process.argv.includes('--gr');
+const OPTS    = { dt0: 1.0, tol: 1e-10, relativity: GR };
 
 const FAST = process.argv.includes('--fast');
 

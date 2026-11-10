@@ -20,6 +20,9 @@ const DT_MAX = 1.0;    // days
 const EPS_TOL = 1e-10; // AU — local truncation error tolerance
 const SOFTENING = 1e-9; // AU² — avoids singularity at r→0
 
+// Speed of light in AU/day: 299 792.458 km/s · 86 400 s / 149 597 870.7 km
+const C_AU_DAY = 173.1446326846693;
+
 /**
  * A "system" is the set of massive perturbers plus the massless test body.
  * State layout for a single test particle: [x, y, z, vx, vy, vz].
@@ -59,6 +62,37 @@ function acceleration(pos, perturbers) {
 }
 
 /**
+ * First-order post-Newtonian (Schwarzschild) correction for a massless test
+ * particle around ONE central mass, in the frame where that mass is at rest:
+ *
+ *     a_GR = GM / (c² r³) · [ (4GM/r − v²) · r + 4 (r·v) · v ]
+ *
+ * (e.g. Moyer 2003, eq. 4-26 reduced to a single body with β = γ = 1). This is
+ * the term behind Mercury's 42.98″/century perihelion advance:
+ *     Δω per orbit = 6πGM / (c² a (1 − e²))
+ * Planet-induced relativistic terms are ~10⁻³ of this one and are ignored.
+ *
+ * @param {number[]} pos  test particle position [x,y,z] (AU)
+ * @param {number[]} vel  test particle velocity [vx,vy,vz] (AU/day)
+ * @param {{mass:number, pos:number[]}} central  the central body (the Sun)
+ * @returns {number[]} extra acceleration [ax, ay, az] (AU/day²)
+ */
+function relativisticAcceleration(pos, vel, central) {
+  const rx = pos[0] - central.pos[0];
+  const ry = pos[1] - central.pos[1];
+  const rz = pos[2] - central.pos[2];
+  const r2 = rx * rx + ry * ry + rz * rz + SOFTENING;
+  const r  = Math.sqrt(r2);
+  const mu = G * central.mass;
+  const v2 = vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2];
+  const rv = rx * vel[0] + ry * vel[1] + rz * vel[2];
+  const k  = mu / (C_AU_DAY * C_AU_DAY * r2 * r);
+  const A  = 4 * mu / r - v2;
+  const B  = 4 * rv;
+  return [k * (A * rx + B * vel[0]), k * (A * ry + B * vel[1]), k * (A * rz + B * vel[2])];
+}
+
+/**
  * Single RK4 step for a 6-element state [x,y,z,vx,vy,vz].
  * Perturber positions are evaluated via the supplied ephemeris(t) function,
  * which returns the perturbers array at a given time.
@@ -67,12 +101,21 @@ function acceleration(pos, perturbers) {
  * @param {number} t         - current time (days)
  * @param {number} dt        - step size (days)
  * @param {(t:number)=>Array} ephemeris - returns perturbers at time t
+ * @param {object} [opts]
+ * @param {boolean} [opts.relativity=false] - add the 1PN Schwarzschild term of
+ *        the FIRST perturber (every ephemeris here lists the Sun first)
  * @returns {number[]} new state after one step
  */
-function rk4Step(state, t, dt, ephemeris) {
+function rk4Step(state, t, dt, ephemeris, opts) {
+  const gr = !!(opts && opts.relativity);
   const deriv = (s, tt) => {
     const pos = [s[0], s[1], s[2]];
-    const a = acceleration(pos, ephemeris(tt));
+    const perturbers = ephemeris(tt);
+    const a = acceleration(pos, perturbers);
+    if (gr) {
+      const g = relativisticAcceleration(pos, [s[3], s[4], s[5]], perturbers[0]);
+      a[0] += g[0]; a[1] += g[1]; a[2] += g[2];
+    }
     return [s[3], s[4], s[5], a[0], a[1], a[2]];
   };
 
@@ -119,9 +162,9 @@ function adaptiveStep(state, t, dt, ephemeris, opts = {}) {
   let h = Math.max(dtMin, Math.min(dtMax, dt));
 
   for (let attempt = 0; attempt < 12; attempt++) {
-    const full = rk4Step(state, t, h, ephemeris);
-    const half1 = rk4Step(state, t, h / 2, ephemeris);
-    const half2 = rk4Step(half1, t + h / 2, h / 2, ephemeris);
+    const full = rk4Step(state, t, h, ephemeris, opts);
+    const half1 = rk4Step(state, t, h / 2, ephemeris, opts);
+    const half2 = rk4Step(half1, t + h / 2, h / 2, ephemeris, opts);
 
     const err = positionError(full, half2);
 
@@ -139,8 +182,8 @@ function adaptiveStep(state, t, dt, ephemeris, opts = {}) {
   }
 
   // Fell through at minimum step — accept what we have.
-  const half1 = rk4Step(state, t, dtMin / 2, ephemeris);
-  const half2 = rk4Step(half1, t + dtMin / 2, dtMin / 2, ephemeris);
+  const half1 = rk4Step(state, t, dtMin / 2, ephemeris, opts);
+  const half2 = rk4Step(half1, t + dtMin / 2, dtMin / 2, ephemeris, opts);
   return { state: half2, t: t + dtMin, dt: dtMin, dtNext: dtMin };
 }
 
@@ -183,9 +226,10 @@ function propagate(state0, t0, t1, outputDt, ephemeris, opts = {}) {
 
 module.exports = {
   acceleration,
+  relativisticAcceleration,
   rk4Step,
   adaptiveStep,
   propagate,
   positionError,
-  DT_MIN, DT_MAX, EPS_TOL,
+  DT_MIN, DT_MAX, EPS_TOL, C_AU_DAY,
 };
