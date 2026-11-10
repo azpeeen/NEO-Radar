@@ -1508,8 +1508,12 @@ class ThreeJSRenderer {
     this._cometPos = new THREE.Vector3();   // scratch for CometTail.update
     this._sunOrigin = new THREE.Vector3(0, 0, 0);
     this._vpMat = new THREE.Matrix4();
-    // Shared view-projection matrix (column-major) — the page's ws() reads it
-    this._vpArray = new Float32Array(16);
+    // Shared view-projection matrix (column-major) — the page's ws() reads it.
+    // Float64 on purpose: projecting a point a few thousand km from a camera
+    // that sits 30 AU from the origin cancels two ~30 AU terms, and float32
+    // matrix elements leave errors as large as the distance itself (labels and
+    // hit tests jitter). Nothing uploads this array to the GPU.
+    this._vpArray = new Float64Array(16);
     this._wpp1 = 1;   // world units per pixel at distance 1 (set per frame)
 
     // Cinematic lighting: the Sun is the only real source. distance=0 keeps
@@ -2134,6 +2138,11 @@ class ThreeJSRenderer {
     this.camera.aspect = this.W / this.H;
     this.camera.updateProjectionMatrix();
 
+    if (this._ship) {
+      this._ship.cam.aspect = this.W / this.H;
+      this._ship.cam.updateProjectionMatrix();
+    }
+
     this._starMaterial.size = 1.2 * this.DPR;
     if (this._mpcPoints) this._mpcPoints.material.size = 1.0 * this.DPR;
   }
@@ -2555,20 +2564,40 @@ class ThreeJSRenderer {
 
   /** Position the camera from the page-owned spherical state (frame.cam) and
    *  refresh the shared view-projection matrix the page's ws() reads. */
-  _updateCamera(cam) {
-    var cp = Math.cos(cam.phi), sp = Math.sin(cam.phi);
-    this.camera.position.set(
-      cam.tx + cam.dist * cp * Math.sin(cam.theta),
-      cam.ty + cam.dist * cp * Math.cos(cam.theta),
-      cam.tz + cam.dist * sp
-    );
-    this.camera.up.set(0, 0, 1);
-    this.camera.lookAt(cam.tx, cam.ty, cam.tz);
-    this.camera.updateMatrixWorld(true);
-    this._camPos.copy(this.camera.position);
-    // Camera-riding fill: lights whatever face the user is looking at
-    this._fillLight.position.copy(this.camera.position);
-    this._fillLight.target.position.set(cam.tx, cam.ty, cam.tz);
+  _updateCamera(cam, ship) {
+    var piloting = !!(ship && ship.active);
+    // Pilot mode flies within metres of km-sized bodies, so it brings its own
+    // near plane; the map/focus camera keeps the 1e-6 AU default.
+    var near = piloting ? ship.near : 1e-6;
+    if (this.camera.near !== near) {
+      this.camera.near = near;
+      this.camera.updateProjectionMatrix();
+    }
+    if (piloting) {
+      // The page owns the ship: position + (lagged) camera orientation arrive
+      // solved, the renderer only applies them.
+      this.camera.position.set(ship.x, ship.y, ship.z);
+      this.camera.quaternion.set(ship.cqx, ship.cqy, ship.cqz, ship.cqw);
+      this.camera.updateMatrixWorld(true);
+      this._camPos.copy(this.camera.position);
+      this._fillLight.position.copy(this.camera.position);
+      var fe = this.camera.matrixWorld.elements;        // column 2 = local +Z (backward)
+      this._fillLight.target.position.set(ship.x - fe[8], ship.y - fe[9], ship.z - fe[10]);
+    } else {
+      var cp = Math.cos(cam.phi), sp = Math.sin(cam.phi);
+      this.camera.position.set(
+        cam.tx + cam.dist * cp * Math.sin(cam.theta),
+        cam.ty + cam.dist * cp * Math.cos(cam.theta),
+        cam.tz + cam.dist * sp
+      );
+      this.camera.up.set(0, 0, 1);
+      this.camera.lookAt(cam.tx, cam.ty, cam.tz);
+      this.camera.updateMatrixWorld(true);
+      this._camPos.copy(this.camera.position);
+      // Camera-riding fill: lights whatever face the user is looking at
+      this._fillLight.position.copy(this.camera.position);
+      this._fillLight.target.position.set(cam.tx, cam.ty, cam.tz);
+    }
     this._vpMat.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     this._vpArray.set(this._vpMat.elements);
     // AU per pixel at distance 1 — multiply by a body's camera distance
@@ -2849,7 +2878,8 @@ class ThreeJSRenderer {
     // Hidden while focused: at focus dolly distances the wide translucent
     // ribbon (orange when the selection is risky) slices through the frustum
     // and washes the whole close-up in its color.
-    this.cone.visible = !!(c && c.active && !state.focusTarget);
+    // Same reason in pilot mode: the ship flies right through it.
+    this.cone.visible = !!(c && c.active && !state.focusTarget && !(frame.ship && frame.ship.active));
     if (!this.cone.visible) return;
     var N = Math.min(this._coneN, c.count);
     var pos = this.cone.geometry.attributes.position;
@@ -2997,6 +3027,255 @@ class ThreeJSRenderer {
     g.restore();
   }
 
+  /* ── Pilot mode: the player's ship ─────────────────────────────────────── */
+
+  // The ship lives in its OWN scene with its own camera, drawn after the main
+  // pass with the depth buffer cleared in between. A ~30 m craft cannot share
+  // a world scale or a depth range with planets, and this keeps it the same
+  // size on screen whether it is skimming a 300 m asteroid or leaving Jupiter.
+  // The overlay scene's axes ARE the main camera's local axes, so the key
+  // light is aimed along the true Sun direction: the hull is lit from where
+  // the Sun really is. Ship axes: forward = −Z, up = +Y, right = +X (same as a
+  // camera). Built lazily on the first pilot frame.
+  _buildShip() {
+    var self = this;
+    var scene = new THREE.Scene();
+    var cam = new THREE.PerspectiveCamera(36, this.W / Math.max(1, this.H), 0.05, 80);
+    cam.position.set(0, 1.55, 6.6);
+    cam.lookAt(0, 1.12, 0);
+
+    var sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
+    scene.add(sun);
+    scene.add(sun.target);
+    scene.add(new THREE.HemisphereLight(0x9db4dc, 0x10131c, 0.42));
+
+    var root = new THREE.Group();     // attitude relative to the camera (page-solved)
+    var bank = new THREE.Group();     // cosmetic bank/pitch from the turn rates
+    root.add(bank);
+    scene.add(root);
+
+    function mat(hex, rough, extra) {
+      var o = { color: self._col(hex), roughness: rough, metalness: 0.18, flatShading: true };
+      if (extra) for (var k in extra) o[k] = extra[k];
+      return new THREE.MeshStandardMaterial(o);
+    }
+    var hullMat   = mat(0xd4dae6, 0.50);
+    var darkMat   = mat(0x2b3242, 0.65);
+    var accentMat = mat(0x1a6cf6, 0.45, { emissive: this._col(0x1a6cf6), emissiveIntensity: 0.30 });
+    var glassMat  = mat(0x0c1a33, 0.12, { metalness: 0.6, flatShading: false,
+                                          emissive: this._col(0x1c4a8c), emissiveIntensity: 0.55 });
+    function add(geo, m, x, y, z) {
+      var mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x || 0, y || 0, z || 0);
+      bank.add(mesh);
+      return mesh;
+    }
+    // Flat plate from a 2D outline: outline +y → ship forward, thickness → up
+    function plate(points, depth) {
+      var sh = new THREE.Shape();
+      sh.moveTo(points[0][0], points[0][1]);
+      for (var k = 1; k < points.length; k++) sh.lineTo(points[k][0], points[k][1]);
+      sh.closePath();
+      var g = new THREE.ExtrudeGeometry(sh, { depth: depth, bevelEnabled: false });
+      g.translate(0, 0, -depth / 2);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    }
+
+    // Hull: lathe profile (radius, station) listed tail → nose so faces point out
+    var prof = [[0, -1.60], [0.25, -1.60], [0.31, -1.20], [0.34, -0.60], [0.31, 0.15],
+                [0.24, 0.85], [0.15, 1.40], [0.06, 1.80], [0, 1.95]];
+    var hullGeo = new THREE.LatheGeometry(prof.map(function (p) { return new THREE.Vector2(p[0], p[1]); }), 12);
+    hullGeo.rotateX(-Math.PI / 2);
+    hullGeo.scale(1, 0.70, 1);
+    add(hullGeo, hullMat);
+
+    // Canopy + dorsal accent stripe
+    var canopyGeo = new THREE.SphereGeometry(0.2, 14, 10);
+    canopyGeo.scale(0.85, 0.62, 2.1);
+    add(canopyGeo, glassMat, 0, 0.155, -0.78);
+    add(new THREE.BoxGeometry(0.09, 0.03, 1.55), accentMat, 0, 0.232, 0.40);
+
+    // Swept wings (slight anhedral) with accent tips
+    var wingR = [[0.24, 0.45], [1.85, -1.05], [1.85, -1.38], [1.25, -1.30], [0.24, -1.30]];
+    var wingL = wingR.map(function (p) { return [-p[0], p[1]]; });
+    add(plate(wingR, 0.06), hullMat, 0, -0.03, 0).rotation.z = -0.06;
+    add(plate(wingL, 0.06), hullMat, 0, -0.03, 0).rotation.z = 0.06;
+    add(new THREE.BoxGeometry(0.07, 0.08, 0.40), accentMat, 1.86, -0.14, 1.21);
+    add(new THREE.BoxGeometry(0.07, 0.08, 0.40), accentMat, -1.86, -0.14, 1.21);
+
+    // Twin canted tail fins
+    function fin(sign) {
+      var g = plate([[0, -0.70], [0.62, -1.50], [0.62, -1.70], [0, -1.58]], 0.05);
+      g.rotateZ(Math.PI / 2);                  // outline +x → up, thickness → sideways
+      var m = add(g, darkMat, sign * 0.27, 0.10, 0);
+      m.rotation.z = -sign * 0.32;
+    }
+    fin(1); fin(-1);
+
+    // Engines: nacelle + intake cone + glowing nozzle, flame and halo
+    var flames = [], halos = [];
+    var nacelleGeo = new THREE.CylinderGeometry(0.16, 0.19, 1.0, 10);
+    nacelleGeo.rotateX(Math.PI / 2);
+    var intakeGeo = new THREE.ConeGeometry(0.16, 0.36, 10);
+    intakeGeo.rotateX(-Math.PI / 2);
+    var nozzleGeo = new THREE.CircleGeometry(0.135, 14);
+    var flameGeo = new THREE.ConeGeometry(0.125, 1, 10, 1, true);
+    flameGeo.rotateX(Math.PI / 2);
+    flameGeo.translate(0, 0, 0.5);             // base at the nozzle, tip trailing (+Z)
+    var nozzleMat = new THREE.MeshBasicMaterial({ color: this._col(0x9fdcff) });
+    [1, -1].forEach(function (sign) {
+      var x = sign * 0.56;
+      add(nacelleGeo, darkMat, x, -0.05, 1.08);
+      add(intakeGeo, darkMat, x, -0.05, 0.40);
+      add(nozzleGeo, nozzleMat, x, -0.05, 1.585);
+      var flame = add(flameGeo, new THREE.MeshBasicMaterial({
+        color: self._col(0x62b4ff), transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      }), x, -0.05, 1.59);
+      flames.push(flame);
+      var halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: self._glowTexture, color: self._col(0x7fc8ff),
+        blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+      }));
+      halo.position.set(x, -0.05, 1.66);
+      bank.add(halo);
+      halos.push(halo);
+    });
+
+    // Navigation lights, aviation convention: red to port, green to starboard
+    var navs = [];
+    [[-1.9, 0xff3b30], [1.9, 0x30ff6a]].forEach(function (n) {
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: self._glowTexture, color: self._col(n[1]),
+        blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+      }));
+      sp.position.set(n[0], -0.14, 1.2);
+      sp.scale.setScalar(0.34);
+      bank.add(sp);
+      navs.push(sp);
+    });
+
+    this._ship = {
+      scene: scene, cam: cam, sun: sun, root: root, bank: bank,
+      flames: flames, halos: halos, navs: navs,
+      bankZ: 0, pitchX: 0, burn: 0, t: 0,
+    };
+    this._shipQ = new THREE.Quaternion();     // inverse camera orientation (scratch)
+    this._shipV = new THREE.Vector3();
+  }
+
+  _drawShip(frame, dt) {
+    if (!this._ship) this._buildShip();
+    var sh = this._ship, s = frame.ship;
+    sh.t += dt;
+
+    sh.root.quaternion.set(s.rqx, s.rqy, s.rqz, s.rqw);
+    // Bank into turns and lift the nose with pitch: pure cosmetics, eased
+    var k = Math.min(1, dt * 6);
+    var wantBank = Math.max(-0.6, Math.min(0.6, s.yaw * 0.38));
+    var wantPitch = Math.max(-0.22, Math.min(0.22, s.pitch * 0.12));
+    sh.bankZ += (wantBank - sh.bankZ) * k;
+    sh.pitchX += (wantPitch - sh.pitchX) * k;
+    sh.bank.rotation.set(sh.pitchX, 0, sh.bankZ);
+
+    // Key light from the real Sun direction, expressed in camera space. It
+    // dims with heliocentric distance but never to black (the hull would
+    // vanish beyond Jupiter under a true inverse-square falloff).
+    this._shipQ.copy(this.camera.quaternion).invert();
+    var v = this._shipV.set(-s.x, -s.y, -s.z);
+    var d = v.length() || 1;
+    v.multiplyScalar(1 / d).applyQuaternion(this._shipQ);
+    sh.sun.position.copy(v).multiplyScalar(10);
+    sh.sun.intensity = 0.9 + 1.7 / (1 + 0.35 * Math.sqrt(d));
+
+    // Engines follow the throttle (boost burns longer and brighter)
+    var want = Math.min(1, Math.abs(s.throttle)) * (s.boost > 1 ? 1.6 : 1);
+    sh.burn += (want - sh.burn) * Math.min(1, dt * 5);
+    var flick = 0.92 + 0.08 * Math.sin(sh.t * 41) * Math.sin(sh.t * 17);
+    for (var i = 0; i < sh.flames.length; i++) {
+      sh.flames[i].scale.set(1, 1, 0.12 + 1.7 * sh.burn * flick);
+      sh.flames[i].material.opacity = 0.18 + 0.42 * Math.min(1, sh.burn);
+      sh.halos[i].scale.setScalar(0.45 + 1.15 * sh.burn * flick);
+      sh.halos[i].material.opacity = 0.35 + 0.5 * Math.min(1, sh.burn);
+    }
+    var blink = 0.55 + 0.45 * Math.max(0, Math.sin(sh.t * 2.4));
+    sh.navs[0].material.opacity = blink;
+    sh.navs[1].material.opacity = blink;
+  }
+
+  // Camera-relative projection in double precision (CSS px). Pilot-mode HUD
+  // marks use this instead of _ws(): the target can be a few km away.
+  _projectRel(x, y, z, out) {
+    var v = this._shipV.set(x - this._camPos.x, y - this._camPos.y, z - this._camPos.z)
+      .applyQuaternion(this._shipQ);
+    var f = (this.H / 2) / Math.tan(FOV_DEG * Math.PI / 360);
+    out.front = v.z < 0;
+    out.cx = v.x; out.cy = v.y; out.depth = -v.z;
+    if (out.front) {
+      out.x = this.W / 2 + (v.x / -v.z) * f;
+      out.y = this.H / 2 - (v.y / -v.z) * f;
+    }
+    out.f = f;
+    return out;
+  }
+
+  _drawShipOverlay(frame, g) {
+    var s = frame.ship, W = this.W, H = this.H, cx = W / 2, cy = H / 2;
+    g.save();
+    // Crosshair: where the nose points
+    g.strokeStyle = 'rgba(200,215,255,0.55)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(cx - 14, cy); g.lineTo(cx - 5, cy);
+    g.moveTo(cx + 5, cy);  g.lineTo(cx + 14, cy);
+    g.moveTo(cx, cy - 14); g.lineTo(cx, cy - 5);
+    g.moveTo(cx, cy + 5);  g.lineTo(cx, cy + 14);
+    g.stroke();
+
+    if (s.hasTarget) {
+      var p = this._projectRel(s.tx, s.ty, s.tz, this._shipProj || (this._shipProj = {}));
+      var col = s.auto ? 'rgba(111,180,255,' : 'rgba(79,143,255,';
+      var pulse = s.auto ? 0.7 + 0.3 * Math.sin(this._ship.t * 5) : 0.9;
+      g.strokeStyle = col + pulse + ')';
+      g.fillStyle = col + '0.95)';
+      g.lineWidth = 1.4;
+      g.font = '10px "JetBrains Mono", monospace';
+      var onScreen = p.front && p.x > 24 && p.x < W - 24 && p.y > 24 && p.y < H - 24;
+      if (onScreen) {
+        // Corner brackets hugging the body's apparent disc
+        var rpx = p.depth > 0 ? p.f * s.tr / p.depth : 0;
+        var b = Math.max(12, Math.min(Math.min(W, H) * 0.42, rpx + 8)), c = Math.max(5, b * 0.3);
+        g.beginPath();
+        for (var qx = -1; qx <= 1; qx += 2) for (var qy = -1; qy <= 1; qy += 2) {
+          g.moveTo(p.x + qx * b, p.y + qy * (b - c));
+          g.lineTo(p.x + qx * b, p.y + qy * b);
+          g.lineTo(p.x + qx * (b - c), p.y + qy * b);
+        }
+        g.stroke();
+        g.fillText(s.tName, p.x + b + 8, p.y - 2);
+        g.fillStyle = 'rgba(197,202,216,0.85)';
+        g.fillText(s.tDist, p.x + b + 8, p.y + 11);
+      } else {
+        // Off screen (or behind): arrow on a ring pointing the shortest turn
+        var ax = p.cx, ay = p.cy, al = Math.hypot(ax, ay);
+        if (al < 1e-12) { ax = 0; ay = -1; al = 1; }
+        ax /= al; ay /= al;
+        var R = Math.min(W, H) * 0.40;
+        var px = cx + ax * R, py = cy - ay * R, ang = Math.atan2(-ay, ax);
+        g.beginPath();
+        g.moveTo(px + 9 * Math.cos(ang), py + 9 * Math.sin(ang));
+        g.lineTo(px - 7 * Math.cos(ang - 0.6), py - 7 * Math.sin(ang - 0.6));
+        g.lineTo(px - 7 * Math.cos(ang + 0.6), py - 7 * Math.sin(ang + 0.6));
+        g.closePath();
+        g.fill();
+        g.textAlign = ax > 0.3 ? 'right' : ax < -0.3 ? 'left' : 'center';
+        g.fillText(s.tName + ' · ' + s.tDist, px - ax * 16, py + ay * 16 + 3);
+      }
+    }
+    g.restore();
+  }
+
   /* ── Overlay (text, dashed lines, pulse rings) ─────────────────────────── */
 
   _drawOverlay(state, frame) {
@@ -3075,13 +3354,17 @@ class ThreeJSRenderer {
     // Labels dos 47 NEOs — só no modo radar, não no focus. É um guard INLINE
     // (não um `return`): sair do método aqui também mataria os labels de
     // planeta/lua e os demais elementos do overlay no modo radar.
-    if (!frame.focusMode && frame.neos && frame.cam.dist < 15) {
+    // Pilot mode has no camera-target distance: label only the NEOs within
+    // 2 AU of the ship instead (47 names at once would bury the view).
+    var pilotLabels = !!(frame.ship && frame.ship.active);
+    if (!frame.focusMode && frame.neos && (pilotLabels || frame.cam.dist < 15)) {
       g.save();
       for (var ni = 0; ni < this.neos.length; ni++) {
         // O selecionado/hover ganham label maior logo abaixo; o focado é
         // nomeado pelo HUD de foco — pular para não duplicar.
         if (ni === frame.selIdx || ni === frame.hovIdx || ni === frame.focusNeoIdx) continue;
         var nn = frame.neos[ni];
+        if (pilotLabels && this._camDist(nn.x, nn.y, nn.z || 0) > 2) continue;
         var nsp = this._ws(nn.x, nn.y, nn.z || 0);
         if (!nsp) continue;
         if (nsp.x < 0 || nsp.x > this.W || nsp.y < 0 || nsp.y > this.H) continue;
@@ -3207,7 +3490,8 @@ class ThreeJSRenderer {
     var dt = Math.min(0.1, (now - this._lastNow) / 1000);
     this._lastNow = now;
 
-    this._updateCamera(frame.cam);
+    var piloting = !!(frame.ship && frame.ship.active);
+    this._updateCamera(frame.cam, frame.ship);
     this._drawSun();
     this._drawPlanets(state, frame, dt);
     this._drawMoons(state, frame);
@@ -3227,7 +3511,15 @@ class ThreeJSRenderer {
     this.renderer.clearDepth();
     this.renderer.render(this.scene, this.camera);
 
+    // Pilot mode: the ship is a third pass on a cleared depth buffer
+    if (piloting) {
+      this._drawShip(frame, dt);
+      this.renderer.clearDepth();
+      this.renderer.render(this._ship.scene, this._ship.cam);
+    }
+
     this._drawOverlay(state, frame);
+    if (piloting) this._drawShipOverlay(frame, this.octx);
   }
 }
 

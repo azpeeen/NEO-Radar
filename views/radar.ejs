@@ -520,6 +520,84 @@
   .canvas-area.focus-active .scale-bar,
   .canvas-area.focus-active .corner-overlay { display: none !important; }
 
+  /* ── Pilot mode ──────────────────────────────────────────────────────────
+     Entry button (bottom-right), HUD (top-left, same card language as the
+     focus HUD), key legend and exit button. Desktop only for now: the ship
+     needs a keyboard. */
+  #pilot-btn {
+    position: absolute; right: 16px; bottom: 16px; z-index: 5;
+    display: inline-flex; align-items: center; gap: 9px;
+    height: 36px; padding: 0 12px 0 11px;
+    border: 1px solid rgba(26,108,246,0.45); border-radius: 8px;
+    background: rgba(8,12,24,0.72); color: var(--cobalt-soft);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
+    cursor: pointer; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    transition: border-color 160ms, color 160ms, background 160ms;
+  }
+  #pilot-btn:hover { color: var(--ink); border-color: var(--cobalt-soft); background: rgba(26,108,246,0.16); }
+  #pilot-btn svg { width: 15px; height: 15px; }
+  #pilot-btn .kbd, #pilot-keys .kbd {
+    display: inline-block; min-width: 16px; padding: 1px 5px; text-align: center;
+    border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink-2);
+    letter-spacing: 0.04em;
+  }
+  #pilot-hud {
+    position: absolute; top: 16px; left: 16px; z-index: 6;
+    width: 268px; padding: 14px 16px;
+    background: rgba(5,6,12,0.78);
+    border: 1px solid var(--line-strong); border-radius: 10px;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font-family: var(--font-mono);
+    opacity: 0; transform: translateY(-6px); pointer-events: none;
+    transition: opacity 300ms, transform 300ms;
+  }
+  #pilot-hud.show { opacity: 1; transform: translateY(0); }
+  #pilot-hud .fh-title { display: flex; justify-content: space-between; align-items: center; font-size: 9px; letter-spacing: 0.22em; color: var(--cobalt-soft); }
+  #pilot-hud .ph-tag { padding: 2px 7px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink-3); letter-spacing: 0.14em; }
+  #pilot-hud .ph-tag.auto { color: #6fb4ff; border-color: rgba(111,180,255,0.55); }
+  #pilot-hud .fh-rule { height: 1px; background: var(--line); margin: 10px 0; }
+  #pilot-hud .ph-speed { font-family: var(--font-display); font-size: 26px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  #pilot-hud .ph-speed small { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); margin-left: 6px; letter-spacing: 0.08em; }
+  #pilot-hud .ph-c { font-size: 10px; color: var(--ink-3); letter-spacing: 0.1em; margin-top: 4px; min-height: 13px; }
+  #pilot-hud .ph-c.ftl { color: var(--amber-soft); }
+  #pilot-hud .fh-kv { display: flex; justify-content: space-between; gap: 14px; font-size: 10.5px; margin: 4px 0; }
+  #pilot-hud .fh-kv .k { color: var(--ink-4); letter-spacing: 0.14em; flex-shrink: 0; }
+  #pilot-hud .fh-kv .v { color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pilot-hud .ph-dest-h { font-size: 9px; letter-spacing: 0.2em; color: var(--ink-4); margin-bottom: 7px; }
+  #pilot-hud .ph-dest { display: flex; flex-wrap: wrap; gap: 5px; pointer-events: auto; }
+  #pilot-hud .ph-dest button {
+    padding: 4px 8px; border: 1px solid var(--line); border-radius: 999px;
+    background: transparent; color: var(--ink-3); cursor: pointer;
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    transition: color 140ms, border-color 140ms;
+  }
+  #pilot-hud .ph-dest button:hover { color: var(--ink); border-color: var(--cobalt-soft); }
+  #pilot-keys {
+    position: absolute; left: 16px; bottom: 16px; z-index: 5; display: none;
+    padding: 10px 12px; background: rgba(8,10,18,0.6);
+    border: 1px solid var(--line); border-radius: 8px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em;
+    color: var(--ink-3); line-height: 2; pointer-events: none;
+  }
+  #pilot-exit-btn {
+    position: absolute; top: 16px; right: 16px; z-index: 7;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid var(--line-strong); background: rgba(5,6,12,0.78);
+    color: var(--ink-2); font-size: 18px; line-height: 1;
+    display: none; place-items: center; cursor: pointer;
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  #pilot-exit-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+  .canvas-area.pilot-active #pilot-exit-btn { display: grid; }
+  .canvas-area.pilot-active #pilot-keys { display: block; }
+  .canvas-area.pilot-active #pilot-btn,
+  .canvas-area.pilot-active #controls-hint,
+  .canvas-area.pilot-active .legend,
+  .canvas-area.pilot-active .scale-bar,
+  .canvas-area.pilot-active .corner-overlay { display: none !important; }
+  @media (max-width: 767px) { #pilot-btn { display: none; } }
+
   /* ── Load screen ─────────────────────────────────────────────────────────
      The sweep only animates transform/opacity, so the browser runs it on the
      compositor and it keeps spinning even while the main thread is busy
@@ -719,6 +797,31 @@
 
     <!-- Circular exit button — shown only while .canvas-area has .focus-active -->
     <button id="focus-exit-btn" aria-label="Exit focus" title="Exit focus">✕</button>
+
+    <!-- Pilot mode: entry button, HUD, key legend, exit (see "Pilot mode" in the script) -->
+    <button id="pilot-btn" type="button" title="Fly a ship through the system (P)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5 L15 13 L21 18 L14.5 17.2 L12 21.5 L9.5 17.2 L3 18 L9 13 Z"/></svg>
+      <span>PILOT SHIP</span><span class="kbd">P</span>
+    </button>
+    <section id="pilot-hud" aria-hidden="true">
+      <div class="fh-title"><span>PILOT MODE</span><span class="ph-tag" id="ph-mode">MANUAL</span></div>
+      <div class="fh-rule"></div>
+      <div class="ph-speed"><span id="ph-speed">0</span><small id="ph-speed-u">km/s</small></div>
+      <div class="ph-c" id="ph-c">AT REST</div>
+      <div class="fh-rule"></div>
+      <div class="fh-kv"><span class="k">NEAREST</span><span class="v" id="ph-near">—</span></div>
+      <div class="fh-kv"><span class="k">SUN</span><span class="v" id="ph-sun">—</span></div>
+      <div class="fh-kv"><span class="k">TARGET</span><span class="v" id="ph-target">—</span></div>
+      <div class="fh-rule"></div>
+      <div class="ph-dest-h">FLY TO</div>
+      <div class="ph-dest" id="ph-dest"></div>
+    </section>
+    <section id="pilot-keys">
+      <span class="kbd">W</span> <span class="kbd">S</span> THRUST &nbsp; <span class="kbd">A</span> <span class="kbd">D</span> YAW &nbsp; <span class="kbd">↑</span> <span class="kbd">↓</span> PITCH &nbsp; <span class="kbd">Q</span> <span class="kbd">E</span> ROLL<br>
+      DRAG STEER &nbsp; <span class="kbd">SHIFT</span> BOOST &nbsp; SCROLL THRUST LIMIT &nbsp; <span class="kbd">X</span> STOP<br>
+      CLICK TARGET &nbsp; <span class="kbd">G</span> AUTOPILOT &nbsp; <span class="kbd">T</span> TARGET AHEAD &nbsp; <span class="kbd">ESC</span> EXIT
+    </section>
+    <button id="pilot-exit-btn" aria-label="Exit pilot mode" title="Exit pilot mode (Esc)">✕</button>
 
     <div class="obj-tooltip" id="tooltip">
       <div class="name" id="tt-name">—</div>
